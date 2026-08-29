@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { generatePlan, getChatHistory, sendChat } from './api/client';
+import { useState } from 'react';
+import { generatePlan, sendChat } from './api/client';
 
 const initialMessages = [
   {
@@ -16,12 +16,23 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const readyForPlan = useMemo(() => {
-    return Boolean(sessionId) && messages.some((m) => m.role === 'assistant');
-  }, [messages, sessionId]);
-
   const appendMessage = (role, content) => {
     setMessages((current) => [...current, { role, content }]);
+  };
+
+  const runGeneratePlan = async (id) => {
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const data = await generatePlan(id);
+      setPlan(data);
+      appendMessage('assistant', `Plan generado: ${data.test_cases.length} casos de prueba.`);
+    } catch (err) {
+      setError(err.message || 'No se pudo generar el plan');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSendMessage = async (event) => {
@@ -39,36 +50,16 @@ export default function App() {
       setSessionId(data.session_id);
       appendMessage('assistant', data.reply);
 
-      if (data.ready_for_plan) {
-        try {
-          const history = await getChatHistory(data.session_id);
-          if (history.ready_for_plan) {
-            setError('');
-          }
-        } catch {
-          // no-op; el usuario puede continuar con el flujo.
-        }
+      // el agente ya junto todo el contexto obligatorio: generamos el plan solo,
+      // sin esperar que el usuario aprete el boton.
+      if (data.ready_for_plan && !plan) {
+        setIsLoading(false);
+        await runGeneratePlan(data.session_id);
+        return;
       }
     } catch (err) {
       const message = err.message || 'No se pudo enviar el mensaje';
       setError(message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleGeneratePlan = async () => {
-    if (!sessionId || isLoading) return;
-
-    setIsLoading(true);
-    setError('');
-
-    try {
-      const data = await generatePlan(sessionId);
-      setPlan(data);
-      appendMessage('assistant', `Plan generado: ${data.test_cases.length} casos de prueba.`);
-    } catch (err) {
-      setError(err.message || 'No se pudo generar el plan');
     } finally {
       setIsLoading(false);
     }
@@ -109,14 +100,6 @@ export default function App() {
               {isLoading ? 'Enviando…' : 'Enviar'}
             </button>
           </form>
-
-          <button
-            className="secondary"
-            onClick={handleGeneratePlan}
-            disabled={!readyForPlan || isLoading}
-          >
-            Generar plan
-          </button>
         </section>
 
         <aside className="panel">
