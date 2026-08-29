@@ -112,49 +112,51 @@ export default function App() {
         </header>
 
         <section className="chat-content">
-          <div className="messages">
-            {messages.map((message, index) => (
-              <article key={`${message.role}-${index}`} className={`message ${message.role}`}>
-                {message.role === 'assistant' && <div className="assistant-mark">A</div>}
-                <div className="message-body">
-                  {message.role === 'assistant' && <span className="message-name">AgenteQA</span>}
-                  <p>{message.content}</p>
+          <div className="chat-scroll">
+            <div className="messages">
+              {messages.map((message, index) => (
+                <article key={`${message.role}-${index}`} className={`message ${message.role}`}>
+                  {message.role === 'assistant' && <div className="assistant-mark">A</div>}
+                  <div className="message-body">
+                    {message.role === 'assistant' && <span className="message-name">AgenteQA</span>}
+                    <p>{message.content}</p>
+                  </div>
+                </article>
+              ))}
+              {isLoading && (
+                <article className="message assistant">
+                  <div className="assistant-mark">A</div>
+                  <div className="message-body">
+                    <span className="message-name">AgenteQA</span>
+                    <div className="typing"><i /><i /><i /></div>
+                  </div>
+                </article>
+              )}
+            </div>
+
+            {error && <div className="error-message">{error}</div>}
+
+            {plan && (
+              <section className="plan-card">
+                <div className="plan-heading">
+                  <div>
+                    <span className="eyebrow">Plan generado</span>
+                    <h2>{plan.test_cases.length} casos de prueba</h2>
+                  </div>
+                  <span className="plan-badge">Listo</span>
                 </div>
-              </article>
-            ))}
-            {isLoading && (
-              <article className="message assistant">
-                <div className="assistant-mark">A</div>
-                <div className="message-body">
-                  <span className="message-name">AgenteQA</span>
-                  <div className="typing"><i /><i /><i /></div>
+                <div className="plan-list">
+                  {plan.test_cases.map((test) => (
+                    <div className="plan-item" key={test.id}>
+                      <span className="test-id">{test.id}</span>
+                      <span>{test.title}</span>
+                      <span className="test-type">{test.type}</span>
+                    </div>
+                  ))}
                 </div>
-              </article>
+              </section>
             )}
           </div>
-
-          {error && <div className="error-message">{error}</div>}
-
-          {plan && (
-            <section className="plan-card">
-              <div className="plan-heading">
-                <div>
-                  <span className="eyebrow">Plan generado</span>
-                  <h2>{plan.test_cases.length} casos de prueba</h2>
-                </div>
-                <span className="plan-badge">Listo</span>
-              </div>
-              <div className="plan-list">
-                {plan.test_cases.map((test) => (
-                  <div className="plan-item" key={test.id}>
-                    <span className="test-id">{test.id}</span>
-                    <span>{test.title}</span>
-                    <span className="test-type">{test.type}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
 
           <form className="composer" onSubmit={handleSendMessage}>
             <textarea
