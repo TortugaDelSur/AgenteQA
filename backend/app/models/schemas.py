@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ContextProgress(BaseModel):
@@ -21,7 +21,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     session_id: str | None = None
-    message: str
+    message: str = Field(min_length=1, max_length=4000)
 
 
 class ChatResponse(BaseModel):
