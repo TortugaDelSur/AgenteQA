@@ -8,6 +8,7 @@ class ContextProgress(BaseModel):
     acceso: bool = False
     alcance: bool = False
     repo: bool = False
+    target_url: str | None = None
 
     @property
     def ready_for_plan(self) -> bool:

@@ -1,10 +1,13 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 from sqlalchemy.orm import Session as OrmSession
 
 from app.llm.client import generate_plan
+from app.llm.page_inspector import inspect_page
 from app.models.db import Message, Plan, Session, get_db
-from app.models.schemas import ChatMessage, PlanRequest, TestPlan
+from app.models.schemas import ChatMessage, ContextProgress, PlanRequest, TestPlan
 
 router = APIRouter()
 
@@ -20,8 +23,11 @@ def post_plan(req: PlanRequest, db: OrmSession = Depends(get_db)) -> TestPlan:
         for m in db.query(Message).filter_by(session_id=req.session_id).order_by(Message.id)
     ]
 
+    context = ContextProgress(**json.loads(session.context_json))
+    page_snapshot = inspect_page(context.target_url) if context.target_url else None
+
     try:
-        plan = generate_plan(history)
+        plan = generate_plan(history, page_snapshot=page_snapshot)
     except (ValidationError, ValueError) as e:
         raise HTTPException(status_code=502, detail=f"LLM no genero un plan valido: {e}")
 

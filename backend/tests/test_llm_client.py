@@ -11,8 +11,10 @@ from app.models.schemas import ChatMessage
 class FakeCompletions:
     def __init__(self, contents):
         self._contents = list(contents)
+        self.last_kwargs = None
 
     def create(self, **kwargs):
+        self.last_kwargs = kwargs
         content = self._contents.pop(0)
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 
@@ -87,6 +89,23 @@ def test_generate_plan_raises_validation_error_after_retry(monkeypatch):
 
     with pytest.raises(ValidationError):
         llm_client.generate_plan(HISTORY)
+
+
+def test_generate_plan_includes_page_snapshot_when_given(monkeypatch):
+    valid_plan = json.dumps({
+        "test_cases": [{
+            "id": "TC-01", "type": "endpoint", "title": "health check",
+            "request": {"method": "GET", "url": "https://x.com/health"},
+            "expected_status": 200,
+        }]
+    })
+    fake = FakeClient([valid_plan])
+    monkeypatch.setattr(llm_client, "get_client", lambda: fake)
+
+    llm_client.generate_plan(HISTORY, page_snapshot='<input id="username">')
+
+    sent_messages = fake.chat.completions.last_kwargs["messages"]
+    assert any('<input id="username">' in m["content"] for m in sent_messages)
 
 
 def test_generate_report_not_implemented():

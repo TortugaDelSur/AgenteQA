@@ -30,8 +30,13 @@ def chat(history: list[ChatMessage]) -> tuple[str, ContextProgress]:
     return data["reply"], ContextProgress(**data["context"])
 
 
-def generate_plan(history: list[ChatMessage]) -> TestPlan:
+def generate_plan(history: list[ChatMessage], page_snapshot: str | None = None) -> TestPlan:
     messages = _to_openai_messages(PLAN_SYSTEM_PROMPT, history)
+    if page_snapshot:
+        messages.append({
+            "role": "user",
+            "content": f"Elementos reales encontrados en la pagina:\n{page_snapshot}",
+        })
 
     response = get_client().chat.completions.create(
         model=settings.deepseek_model,

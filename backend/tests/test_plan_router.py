@@ -16,7 +16,7 @@ def test_post_plan_404_for_unknown_session(client):
 
 def test_post_plan_success(client, monkeypatch):
     session_id = _new_session(client, monkeypatch)
-    monkeypatch.setattr(plan_router, "generate_plan", lambda history: SAMPLE_TEST_PLAN)
+    monkeypatch.setattr(plan_router, "generate_plan", lambda history, page_snapshot=None: SAMPLE_TEST_PLAN)
 
     resp = client.post("/api/plan", json={"session_id": session_id})
 
@@ -27,7 +27,7 @@ def test_post_plan_success(client, monkeypatch):
 def test_post_plan_502_when_llm_output_invalid(client, monkeypatch):
     session_id = _new_session(client, monkeypatch)
 
-    def raise_value_error(history):
+    def raise_value_error(history, page_snapshot=None):
         raise ValueError("json invalido")
 
     monkeypatch.setattr(plan_router, "generate_plan", raise_value_error)
@@ -35,3 +35,44 @@ def test_post_plan_502_when_llm_output_invalid(client, monkeypatch):
     resp = client.post("/api/plan", json={"session_id": session_id})
 
     assert resp.status_code == 502
+
+
+def test_post_plan_inspects_page_when_target_url_known(client, monkeypatch):
+    session_id = _new_session(client, monkeypatch)
+
+    monkeypatch.setattr(plan_router, "inspect_page", lambda url: "<input id=\"x\">")
+    captured = {}
+
+    def fake_generate_plan(history, page_snapshot=None):
+        captured["page_snapshot"] = page_snapshot
+        return SAMPLE_TEST_PLAN
+
+    monkeypatch.setattr(plan_router, "generate_plan", fake_generate_plan)
+
+    # setea target_url directo en la sesion via un segundo turno de chat
+    monkeypatch.setattr(
+        chat_router, "llm_chat",
+        lambda history: ("ok", ContextProgress(objetivo=True, acceso=True, target_url="https://x.com")),
+    )
+    client.post("/api/chat", json={"session_id": session_id, "message": "url https://x.com"})
+
+    resp = client.post("/api/plan", json={"session_id": session_id})
+
+    assert resp.status_code == 200
+    assert captured["page_snapshot"] == "<input id=\"x\">"
+
+
+def test_post_plan_skips_inspection_without_target_url(client, monkeypatch):
+    session_id = _new_session(client, monkeypatch)
+    called = {"count": 0}
+
+    def fake_inspect(url):
+        called["count"] += 1
+        return "no deberia llamarse"
+
+    monkeypatch.setattr(plan_router, "inspect_page", fake_inspect)
+    monkeypatch.setattr(plan_router, "generate_plan", lambda history, page_snapshot=None: SAMPLE_TEST_PLAN)
+
+    client.post("/api/plan", json={"session_id": session_id})
+
+    assert called["count"] == 0
