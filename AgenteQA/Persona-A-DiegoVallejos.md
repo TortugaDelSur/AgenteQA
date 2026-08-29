@@ -12,6 +12,7 @@
 - [x] Probado end-to-end con curl (chat -> historial -> plan) usando Groq (`openai/gpt-oss-120b`)
 - [x] Fixture `tests/fixtures.py` con `TestPlan` de ejemplo para Persona B
 - [x] Tests minimos (`tests/test_schemas.py`) pasando
+- [x] Cobertura 97% (`test_llm_client.py`, `test_chat_router.py`, `test_plan_router.py`, mocks del LLM via monkeypatch, DB en memoria via `conftest.py`), gate de `--cov-fail-under=95` en `pytest.ini`
 
 ## Contexto
 

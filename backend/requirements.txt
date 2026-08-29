@@ -8,3 +8,4 @@ openai
 markdown
 pytest
 pytest-asyncio
+pytest-cov
