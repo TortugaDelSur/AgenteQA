@@ -50,8 +50,8 @@ export default function App() {
         }
       }
     } catch (err) {
-      setError(err.message || 'No se pudo enviar el mensaje');
-      appendMessage('assistant', 'No pude contactarme con el backend. Verifica que FastAPI esté corriendo en localhost:8000.');
+      const message = err.message || 'No se pudo enviar el mensaje';
+      setError(message);
     } finally {
       setIsLoading(false);
     }
