@@ -71,3 +71,17 @@ class TestPlan(BaseModel):
 
 class PlanRequest(BaseModel):
     session_id: str
+
+
+# --- Resultados de ejecucion (contrato compartido con Persona B) ---
+
+class TestResult(BaseModel):
+    test_case_id: str
+    status: Literal["pass", "fail", "error"]
+    detail: str
+    evidence: str | None = None
+
+
+class ExecutionResponse(BaseModel):
+    session_id: str
+    results: list[TestResult]

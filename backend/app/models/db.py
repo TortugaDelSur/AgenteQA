@@ -37,6 +37,18 @@ class Plan(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(default=datetime.datetime.utcnow)
 
 
+class Result(Base):
+    __tablename__ = "results"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id"))
+    test_case_id: Mapped[str]
+    status: Mapped[str]
+    detail: Mapped[str]
+    evidence: Mapped[str | None]
+    created_at: Mapped[datetime.datetime] = mapped_column(default=datetime.datetime.utcnow)
+
+
 engine = create_engine(f"sqlite:///{settings.db_path}")
 SessionLocal = sessionmaker(bind=engine)
 
