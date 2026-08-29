@@ -2,6 +2,7 @@ import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from openai import OpenAIError
 from sqlalchemy.orm import Session as OrmSession
 
 from app.llm.client import chat as llm_chat
@@ -27,7 +28,10 @@ def post_chat(req: ChatRequest, db: OrmSession = Depends(get_db)) -> ChatRespons
         for m in db.query(Message).filter_by(session_id=session.id).order_by(Message.id)
     ]
 
-    reply, context = llm_chat(history)
+    try:
+        reply, context = llm_chat(history)
+    except (OpenAIError, KeyError, ValueError, json.JSONDecodeError) as e:
+        raise HTTPException(status_code=502, detail=f"El LLM no respondio correctamente: {e}")
 
     session.context_json = context.model_dump_json()
     db.add(Message(session_id=session.id, role="assistant", content=reply))
