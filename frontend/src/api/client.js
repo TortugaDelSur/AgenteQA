@@ -38,11 +38,42 @@ export async function generatePlan(sessionId) {
   });
 }
 
-export async function executePlan(sessionId) {
-  return request('/execute', {
+export async function executePlan(sessionId, onProgress) {
+  const response = await fetch(`${API_BASE}/execute`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId }),
   });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.detail || 'No se pudo ejecutar el plan');
+  }
+
+  // NDJSON: una linea de progreso por test case a medida que termina, no esperamos al final.
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const results = [];
+  let buffer = '';
+
+  const handleLine = (line) => {
+    if (!line.trim()) return;
+    const progress = JSON.parse(line);
+    results.push(progress.result);
+    onProgress?.(progress);
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    lines.forEach(handleLine);
+  }
+  if (buffer) handleLine(buffer);
+
+  return { session_id: sessionId, results };
 }
 
 export async function downloadReport(sessionId) {

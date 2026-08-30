@@ -27,12 +27,10 @@ def _session_with_plan(client, monkeypatch) -> str:
 def _executed_session(client, monkeypatch) -> str:
     session_id = _session_with_plan(client, monkeypatch)
 
-    async def fake_run_plan(sid, plan):
-        return [
-            TestResult(test_case_id="TC-01", status="fail", detail="boom", evidence="TC-01.png")
-        ]
+    async def fake_run_plan_stream(sid, plan):
+        yield TestResult(test_case_id="TC-01", status="fail", detail="boom", evidence="TC-01.png")
 
-    monkeypatch.setattr(execute_router, "run_plan", fake_run_plan)
+    monkeypatch.setattr(execute_router, "run_plan_stream", fake_run_plan_stream)
     client.post("/api/execute", json={"session_id": session_id})
     return session_id
 

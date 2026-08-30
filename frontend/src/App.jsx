@@ -57,6 +57,7 @@ export default function App() {
   const [input, setInput] = useState('');
   const [plan, setPlan] = useState(null);
   const [results, setResults] = useState(null);
+  const [executionProgress, setExecutionProgress] = useState(null);
   const [report, setReport] = useState(null);
   const [context, setContext] = useState({
     objetivo: false,
@@ -87,6 +88,7 @@ export default function App() {
     setInput('');
     setPlan(null);
     setResults(null);
+    setExecutionProgress(null);
     setReport(null);
     setContext({ objetivo: false, acceso: false, alcance: false, repo: false, target_url: null });
     setError('');
@@ -121,14 +123,19 @@ export default function App() {
 
     setError('');
     setIsLoading(true);
+    setResults([]);
+    setExecutionProgress({ index: 0, total: plan.test_cases.length });
     try {
-      const data = await executePlan(sessionId);
-      setResults(data.results);
+      const data = await executePlan(sessionId, (progress) => {
+        setExecutionProgress({ index: progress.index, total: progress.total });
+        setResults((current) => [...current, progress.result]);
+      });
       appendMessage('assistant', `Ejecución completada: ${data.results.length} casos procesados.`);
     } catch (err) {
       setError(err.message || 'No se pudo ejecutar el plan');
     } finally {
       setIsLoading(false);
+      setExecutionProgress(null);
     }
   };
 
@@ -254,9 +261,13 @@ export default function App() {
                 <div className="plan-heading">
                   <div>
                     <span className="eyebrow">Ejecución</span>
-                    <h2>{results.length} resultados</h2>
+                    <h2>
+                      {executionProgress
+                        ? `Ejecutando prueba ${executionProgress.index} de ${executionProgress.total}...`
+                        : `${results.length} resultados`}
+                    </h2>
                   </div>
-                  <span className="plan-badge">Completada</span>
+                  <span className="plan-badge">{executionProgress ? 'En curso' : 'Completada'}</span>
                 </div>
                 <div className="results-list">
                   {results.map((result) => (
@@ -269,9 +280,11 @@ export default function App() {
                     </div>
                   ))}
                 </div>
-                <button className="report-button" onClick={handleDownloadReport} disabled={isLoading}>
-                  Descargar reporte Markdown
-                </button>
+                {!executionProgress && (
+                  <button className="report-button" onClick={handleDownloadReport} disabled={isLoading}>
+                    Descargar reporte Markdown
+                  </button>
+                )}
                 {report && <p className="report-ready">Reporte generado y descargado.</p>}
               </section>
             )}

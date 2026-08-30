@@ -1,3 +1,5 @@
+import json
+
 import app.routers.chat as chat_router
 import app.routers.execute as execute_router
 import app.routers.plan as plan_router
@@ -22,6 +24,10 @@ def _session_with_plan(client, monkeypatch) -> str:
     return session_id
 
 
+def _parse_ndjson(text: str) -> list[dict]:
+    return [json.loads(line) for line in text.strip().splitlines() if line]
+
+
 def test_execute_404_for_unknown_session(client):
     resp = client.post("/api/execute", json={"session_id": "no-existe"})
     assert resp.status_code == 404
@@ -36,26 +42,27 @@ def test_execute_409_when_session_has_no_plan(client, monkeypatch):
     assert "plan" in resp.json()["detail"]
 
 
-def test_execute_runs_plan_persists_results_and_returns_them(client, monkeypatch):
+def test_execute_streams_progress_and_persists_results(client, monkeypatch):
     session_id = _session_with_plan(client, monkeypatch)
     captured = {}
 
-    async def fake_run_plan(sid, plan):
+    async def fake_run_plan_stream(sid, plan):
         captured["sid"] = sid
         captured["n_cases"] = len(plan.test_cases)
-        return [
-            TestResult(test_case_id="TC-01", status="pass", detail="ok"),
-            TestResult(test_case_id="TC-02", status="fail", detail="status 500", evidence="HTTP 500"),
-        ]
+        yield TestResult(test_case_id="TC-01", status="pass", detail="ok")
+        yield TestResult(test_case_id="TC-02", status="fail", detail="status 500", evidence="HTTP 500")
 
-    monkeypatch.setattr(execute_router, "run_plan", fake_run_plan)
+    monkeypatch.setattr(execute_router, "run_plan_stream", fake_run_plan_stream)
 
     resp = client.post("/api/execute", json={"session_id": session_id})
 
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["session_id"] == session_id
-    assert [r["status"] for r in data["results"]] == ["pass", "fail"]
+    assert resp.headers["content-type"].startswith("application/x-ndjson")
+    lines = _parse_ndjson(resp.text)
+
+    assert [line["result"]["status"] for line in lines] == ["pass", "fail"]
+    assert [line["index"] for line in lines] == [1, 2]
+    assert all(line["total"] == 2 for line in lines)
     assert captured["sid"] == session_id
     assert captured["n_cases"] == len(SAMPLE_TEST_PLAN.test_cases)
 
@@ -72,11 +79,12 @@ def test_execute_uses_most_recent_plan(client, monkeypatch):
 
     seen_ids = {}
 
-    async def fake_run_plan(sid, plan):
+    async def fake_run_plan_stream(sid, plan):
         seen_ids["ids"] = [tc.id for tc in plan.test_cases]
-        return []
+        return
+        yield  # pragma: no cover - hace de este un generador async vacio
 
-    monkeypatch.setattr(execute_router, "run_plan", fake_run_plan)
+    monkeypatch.setattr(execute_router, "run_plan_stream", fake_run_plan_stream)
 
     resp = client.post("/api/execute", json={"session_id": session_id})
 
