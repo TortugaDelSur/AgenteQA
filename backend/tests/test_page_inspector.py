@@ -51,3 +51,28 @@ def test_returns_none_when_no_relevant_elements(monkeypatch):
     monkeypatch.setattr(httpx, "get", lambda *a, **k: FakeResponse("<html><body><p>hola</p></body></html>"))
 
     assert page_inspector.inspect_page("https://x.com") is None
+
+
+def test_inspect_multiple_returns_snapshot_per_reachable_url(monkeypatch):
+    html_by_url = {
+        "https://x.com/a": '<input id="a-input">',
+        "https://x.com/c": '<input id="c-input">',
+    }
+
+    def fake_get(url, **kwargs):
+        if url not in html_by_url:
+            raise httpx.ConnectTimeout("timeout")
+        return FakeResponse(html_by_url[url])
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+
+    result = page_inspector.inspect_multiple(["https://x.com/a", "https://x.com/b", "https://x.com/c"])
+
+    assert set(result.keys()) == {"https://x.com/a", "https://x.com/c"}
+    assert 'id="a-input"' in result["https://x.com/a"]
+
+
+def test_format_snapshots_labels_each_url():
+    text = page_inspector.format_snapshots({"https://a.com": "<input>", "https://b.com": "<button>"})
+    assert "== https://a.com ==" in text
+    assert "== https://b.com ==" in text

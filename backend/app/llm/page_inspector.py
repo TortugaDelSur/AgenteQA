@@ -63,3 +63,21 @@ def inspect_page(url: str) -> str | None:
         return None
 
     return extract_elements(response.text)
+
+
+def inspect_multiple(urls: list[str]) -> dict[str, str]:
+    """Igual que `inspect_page` pero para varias URLs (paginas/pestañas mencionadas sin login).
+
+    Una URL que falla o no tiene elementos simplemente se omite (no tumba las demas).
+    """
+    snapshots = {}
+    for url in urls:
+        elements = inspect_page(url)
+        if elements:
+            snapshots[url] = elements
+    return snapshots
+
+
+def format_snapshots(snapshots: dict[str, str]) -> str:
+    blocks = [f"== {url} ==\n{elements}" for url, elements in snapshots.items()]
+    return "\n\n".join(blocks)

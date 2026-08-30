@@ -1,4 +1,4 @@
-from app.llm.page_inspector import extract_elements
+from app.llm.page_inspector import extract_elements, format_snapshots  # noqa: F401 (reexportado)
 
 LOGIN_TIMEOUT_MS = 15000
 
@@ -66,8 +66,3 @@ async def inspect_with_login(
         if own_browser:  # pragma: no cover - requiere el browser real de Playwright
             await browser.close()
             await playwright.stop()
-
-
-def format_snapshots(snapshots: dict[str, str]) -> str:
-    blocks = [f"== {url} ==\n{elements}" for url, elements in snapshots.items()]
-    return "\n\n".join(blocks)

@@ -53,18 +53,29 @@ def generate_plan(history: list[ChatMessage], page_snapshot: str | None = None) 
     raw = response.choices[0].message.content
 
     try:
-        return TestPlan(**json.loads(raw))
-    except (json.JSONDecodeError, ValidationError) as e:
+        return _parse_test_plan(raw)
+    except (json.JSONDecodeError, ValidationError, TypeError) as e:
         retry_messages = messages + [
             {"role": "assistant", "content": raw},
-            {"role": "user", "content": f"Ese JSON es invalido: {e}. Corregilo y devolvé solo el JSON valido."},
+            {
+                "role": "user",
+                "content": f"Ese JSON es invalido: {e}. Corregilo, respetando el schema exacto "
+                           f'(un objeto con la clave "test_cases"), y devolvé solo el JSON valido.',
+            },
         ]
         response = get_client().chat.completions.create(
             model=settings.deepseek_model,
             messages=retry_messages,
             response_format={"type": "json_object"},
         )
-        return TestPlan(**json.loads(response.choices[0].message.content))
+        return _parse_test_plan(response.choices[0].message.content)
+
+
+def _parse_test_plan(raw: str) -> TestPlan:
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise TypeError(f"esperaba un objeto JSON, recibio {type(data).__name__}")
+    return TestPlan(**data)
 
 
 def generate_report(plan: TestPlan, results: list[TestResult]) -> str:

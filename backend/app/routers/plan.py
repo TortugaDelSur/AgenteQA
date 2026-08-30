@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 from sqlalchemy.orm import Session as OrmSession
 
-from app.llm.authenticated_inspector import format_snapshots, inspect_with_login
+from app.llm.authenticated_inspector import inspect_with_login
 from app.llm.client import generate_plan
-from app.llm.page_inspector import inspect_page
+from app.llm.page_inspector import format_snapshots, inspect_multiple, inspect_page
 from app.models.db import Message, Plan, Session, get_db
 from app.models.schemas import ChatMessage, ContextProgress, PlanRequest, TestPlan
 
@@ -23,9 +23,12 @@ async def _build_page_snapshot(context: ContextProgress) -> str | None:
         )
         if snapshots:
             return format_snapshots(snapshots)
-        # login o navegacion fallo (selectores no encontrados, timeout, etc): cae al estatico.
+        # login fallo (selectores no encontrados, timeout, etc): cae al estatico de la principal.
+        return inspect_page(context.target_url)
 
-    return inspect_page(context.target_url)
+    # sin login: inspecciona la pagina principal + cualquier otra pestaña/pagina mencionada.
+    snapshots = inspect_multiple([context.target_url, *context.extra_urls])
+    return format_snapshots(snapshots) if snapshots else None
 
 
 @router.post("/api/plan", response_model=TestPlan)
@@ -44,7 +47,7 @@ async def post_plan(req: PlanRequest, db: OrmSession = Depends(get_db)) -> TestP
 
     try:
         plan = generate_plan(history, page_snapshot=page_snapshot)
-    except (ValidationError, ValueError) as e:
+    except (ValidationError, ValueError, TypeError) as e:
         raise HTTPException(status_code=502, detail=f"LLM no genero un plan valido: {e}")
 
     db.add(Plan(session_id=req.session_id, plan_json=plan.model_dump_json()))

@@ -37,10 +37,24 @@ def test_post_plan_502_when_llm_output_invalid(client, monkeypatch):
     assert resp.status_code == 502
 
 
+def test_post_plan_502_when_llm_returns_wrong_json_shape(client, monkeypatch):
+    # bug real: TypeError (LLM devuelve un array en vez de objeto) debe dar 502, no 500 crudo.
+    session_id = _new_session(client, monkeypatch)
+
+    def raise_type_error(history, page_snapshot=None):
+        raise TypeError("esperaba un objeto JSON, recibio list")
+
+    monkeypatch.setattr(plan_router, "generate_plan", raise_type_error)
+
+    resp = client.post("/api/plan", json={"session_id": session_id})
+
+    assert resp.status_code == 502
+
+
 def test_post_plan_inspects_page_when_target_url_known(client, monkeypatch):
     session_id = _new_session(client, monkeypatch)
 
-    monkeypatch.setattr(plan_router, "inspect_page", lambda url: "<input id=\"x\">")
+    monkeypatch.setattr(plan_router, "inspect_multiple", lambda urls: {urls[0]: "<input id=\"x\">"})
     captured = {}
 
     def fake_generate_plan(history, page_snapshot=None):
@@ -59,7 +73,35 @@ def test_post_plan_inspects_page_when_target_url_known(client, monkeypatch):
     resp = client.post("/api/plan", json={"session_id": session_id})
 
     assert resp.status_code == 200
-    assert captured["page_snapshot"] == "<input id=\"x\">"
+    assert "== https://x.com ==" in captured["page_snapshot"]
+    assert 'id="x"' in captured["page_snapshot"]
+
+
+def test_post_plan_inspects_multiple_pages_without_login(client, monkeypatch):
+    session_id = _new_session(client, monkeypatch)
+
+    captured_urls = {}
+
+    def fake_inspect_multiple(urls):
+        captured_urls["urls"] = urls
+        return {u: f"<input id=\"{i}\">" for i, u in enumerate(urls)}
+
+    monkeypatch.setattr(plan_router, "inspect_multiple", fake_inspect_multiple)
+    monkeypatch.setattr(plan_router, "generate_plan", lambda history, page_snapshot=None: SAMPLE_TEST_PLAN)
+
+    monkeypatch.setattr(
+        chat_router, "llm_chat",
+        lambda history, page_snapshot=None: ("ok", ContextProgress(
+            objetivo=True, acceso=True, target_url="https://x.com",
+            extra_urls=["https://x.com/tab2", "https://x.com/tab3"],
+        )),
+    )
+    client.post("/api/chat", json={"session_id": session_id, "message": "3 pestañas"})
+
+    resp = client.post("/api/plan", json={"session_id": session_id})
+
+    assert resp.status_code == 200
+    assert captured_urls["urls"] == ["https://x.com", "https://x.com/tab2", "https://x.com/tab3"]
 
 
 def test_post_plan_uses_authenticated_inspection_when_credentials_known(client, monkeypatch):

@@ -104,6 +104,33 @@ def test_generate_plan_raises_validation_error_after_retry(monkeypatch):
         llm_client.generate_plan(HISTORY)
 
 
+def test_generate_plan_retries_when_llm_returns_a_bare_list(monkeypatch):
+    # bug real: el LLM a veces devuelve un array JSON en vez de un objeto {"test_cases": [...]}.
+    valid_plan = json.dumps({
+        "test_cases": [{
+            "id": "TC-01", "type": "endpoint", "title": "health check",
+            "request": {"method": "GET", "url": "https://x.com/health"},
+            "expected_status": 200,
+        }]
+    })
+    bare_list = json.dumps([{"id": "TC-01", "type": "endpoint", "title": "x"}])
+    fake = FakeClient([bare_list, valid_plan])
+    monkeypatch.setattr(llm_client, "get_client", lambda: fake)
+
+    plan = llm_client.generate_plan(HISTORY)
+
+    assert len(plan.test_cases) == 1
+
+
+def test_generate_plan_raises_type_error_if_bare_list_persists(monkeypatch):
+    bare_list = json.dumps([{"id": "TC-01", "type": "endpoint", "title": "x"}])
+    fake = FakeClient([bare_list, bare_list])
+    monkeypatch.setattr(llm_client, "get_client", lambda: fake)
+
+    with pytest.raises(TypeError):
+        llm_client.generate_plan(HISTORY)
+
+
 def test_generate_plan_includes_page_snapshot_when_given(monkeypatch):
     valid_plan = json.dumps({
         "test_cases": [{
