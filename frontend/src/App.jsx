@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { generatePlan, sendChat } from './api/client';
 
 const welcomeMessage = {
@@ -65,6 +65,15 @@ export default function App() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const chatScrollRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  useEffect(() => {
+    const chatScroll = chatScrollRef.current;
+    if (chatScroll) {
+      chatScroll.scrollTop = chatScroll.scrollHeight;
+    }
+  }, [messages, isLoading, error, plan]);
 
   const appendMessage = (role, content) => {
     setMessages((current) => [...current, { role, content }]);
@@ -77,6 +86,15 @@ export default function App() {
     setPlan(null);
     setContext({ objetivo: false, acceso: false, alcance: false, repo: false, target_url: null });
     setError('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+  };
+
+  const resizeTextarea = (textarea) => {
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > 200 ? 'auto' : 'hidden';
   };
 
   const runGeneratePlan = async (id) => {
@@ -101,6 +119,10 @@ export default function App() {
 
     setMessages((current) => [...current, { role: 'user', content: value }]);
     setInput('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '44px';
+      textareaRef.current.style.overflowY = 'hidden';
+    }
     setError('');
     setIsLoading(true);
 
@@ -133,32 +155,11 @@ export default function App() {
         </div>
 
         <QaStepper context={context} hasPlan={Boolean(plan)} />
-
-        <div className="sidebar-bottom">
-          <div className="provider">
-            <span className="provider-dot" />
-            <div>
-              <strong>Groq conectado</strong>
-              <small>Asistente listo</small>
-            </div>
-          </div>
-        </div>
       </aside>
 
       <main className="conversation-area">
-        <header className="conversation-header">
-          <div className="model-picker">
-            <span>AgenteQA</span>
-            <span className="chevron">⌄</span>
-          </div>
-          <div className="header-actions">
-            <button className="icon-button" aria-label="Compartir">↗</button>
-            <button className="icon-button" aria-label="Más opciones">•••</button>
-          </div>
-        </header>
-
         <section className="chat-content">
-          <div className="chat-scroll">
+          <div className="chat-scroll" ref={chatScrollRef}>
             <div className="messages">
               {messages.map((message, index) => (
                 <article key={`${message.role}-${index}`} className={`message ${message.role}`}>
@@ -206,8 +207,12 @@ export default function App() {
 
           <form className="composer" onSubmit={handleSendMessage}>
             <textarea
+              ref={textareaRef}
               value={input}
-              onChange={(event) => setInput(event.target.value)}
+              onChange={(event) => {
+                setInput(event.target.value);
+                resizeTextarea(event.target);
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault();
