@@ -100,6 +100,11 @@ Reglas:
 - "type" es "ui" o "endpoint". Los tests "ui" usan "steps" (solo esas 5 acciones existen: goto, click, fill,
   assert_text, assert_visible). Los tests "endpoint" usan "request" + "expected_status"/"expected_body_contains".
 - Los "selector" deben ser CSS selectors validos.
+- Sitios reales suelen repetir el mismo link/elemento en varios lugares (menu desktop, menu mobile oculto,
+  footer) — un selector generico como `a[href="..."]` puede matchear la copia oculta y dar un falso fallo en
+  "assert_visible". Si el bloque de elementos reales muestra que un `<a>` con ese href aparece dentro de un
+  contenedor de navegacion identificable (nav, header, menu), preferi acotar el selector a ese contenedor
+  (ej. `header nav a[href="..."]`) en vez del selector plano.
 - Generá varios casos de prueba cubriendo lo que el usuario menciono en el alcance (casos normales y de error).
 - No inventes URLs ni endpoints que el usuario no haya mencionado.
 - Seguridad: todas las "url" de "request" y de "steps" con action "goto" deben apuntar UNICAMENTE al dominio de

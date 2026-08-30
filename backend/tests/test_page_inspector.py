@@ -27,6 +27,27 @@ def test_extracts_form_elements(monkeypatch):
     assert 'id="login"' in result
 
 
+def test_marks_links_with_landmark_context(monkeypatch):
+    # bug real: el mismo href aparece en el menu mobile oculto y en el nav visible, un selector
+    # generico matchea el duplicado equivocado. El contexto [nav]/[footer] le permite al LLM
+    # acotar el selector para evitar eso.
+    html = (
+        '<html><body>'
+        '<header><nav><a href="/x">X</a></nav></header>'
+        '<footer><a href="/x">X (footer)</a></footer>'
+        '<form><input id="search"></form>'
+        '</body></html>'
+    )
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: FakeResponse(html))
+
+    result = page_inspector.inspect_page("https://x.com")
+
+    assert '[nav] <a href="/x">' in result
+    assert '[footer] <a href="/x">' in result
+    # los elementos de formulario (sin landmark en este caso) no llevan prefijo
+    assert 'id="search"' in result and "[form]" not in result
+
+
 def test_returns_none_on_http_error(monkeypatch):
     def raise_error(*a, **k):
         raise httpx.ConnectTimeout("timeout")
@@ -76,3 +97,14 @@ def test_format_snapshots_labels_each_url():
     text = page_inspector.format_snapshots({"https://a.com": "<input>", "https://b.com": "<button>"})
     assert "== https://a.com ==" in text
     assert "== https://b.com ==" in text
+
+
+def test_format_snapshots_truncates_when_too_large():
+    # bug real: 8 paginas de un e-commerce generaron >12000 tokens en un solo request y
+    # exploto el limite por-minuto de un plan gratis de Groq.
+    huge_snapshots = {f"https://x.com/page{i}": "<input>" * 200 for i in range(10)}
+
+    text = page_inspector.format_snapshots(huge_snapshots)
+
+    assert len(text) <= page_inspector.MAX_SNAPSHOT_CHARS + len("\n... (truncado, habia mas elementos/paginas de los que entran aca)")
+    assert "truncado" in text
