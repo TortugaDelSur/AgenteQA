@@ -1,5 +1,19 @@
 # Modulo Persona B — Motor de ejecucion + Reporte (documentacion, no implementacion)
 
+## Estado: implementado y revisado (2026-08-29)
+
+- [x] `execution/endpoint_runner.py` — coincide con el spec (pass/fail/error, evidence con HTTP+body). Tests con `httpx.MockTransport` real (mejor que inventar un fake), cubre status/body mismatch, request que revienta, sin `request` definido, sin expectativas, y que cierra el client propio si no le inyectan uno.
+- [x] `execution/ui_runner.py` — dispatch fijo de 5 acciones sobre Playwright, screenshot en fallo, browser inyectable para tests (mismo patron que se replico despues en `authenticated_inspector.py` de Persona A).
+- [x] `execution/runner.py` — dispatch por tipo en serie (decision correcta: Playwright compite por recursos si se paraleliza).
+- [x] `routers/execute.py` — agrego 409 explicito si la sesion no tiene plan (no estaba en el spec, buena adicion).
+- [x] `routers/report.py` — agrego 409 explicito si no hay resultados, manejo de error del LLM igual al patron de `chat.py`/`plan.py` (502).
+- [x] `llm/client.py::generate_report()` y `REPORT_SYSTEM_PROMPT` completados.
+- [x] Tests: `test_endpoint_runner.py`, `test_ui_runner.py`, `test_runner.py`, `test_execute_router.py`, `test_report_router.py`. Suite completa (con el modulo de Persona A): 67 tests, 98.79% cobertura.
+- [x] Verificado end-to-end real (Diego, 2026-08-29): chat -> plan -> execute (login real contra `the-internet.herokuapp.com`) -> reporte `.md` descargado, 2/2 casos pass. Funciona de punta a punta.
+- [x] `playwright install chromium` ya esta en `README.md` (agregado por Diego en el setup inicial).
+
+Todo lo de abajo es el plan original, dejado como referencia.
+
 ## Contexto
 
 Fase siguiente del flujo AgenteQA: ejecutar el `TestPlan` que ya genera el modulo de Diego (Persona A) y armar el reporte final. Este modulo es scope de **Sebastian Apablaza (Persona B)** segun `00-Plan-General.md` — acá se documenta en detalle para que el lo implemente, sin escribir el motor de ejecucion nosotros.
