@@ -62,7 +62,9 @@ class HttpRequestSpec(BaseModel):
 
 
 class TestCase(BaseModel):
-    id: str
+    # sin caracteres de path traversal: el id se usa para nombrar el screenshot en disco
+    # (backend/screenshots/{session_id}/{id}.png), un id malicioso podria escribir fuera de esa carpeta.
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]+$", max_length=50)
     type: Literal["ui", "endpoint"]
     title: str
     steps: list[UiStep] | None = None
