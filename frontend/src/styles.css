@@ -69,6 +69,18 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .plan-list { margin-top: 16px; border-top: 1px solid #303443; }
 .plan-item { display: grid; grid-template-columns: 53px 1fr auto; gap: 9px; padding: 11px 0; border-bottom: 1px solid #303443; color: #d5d2dd; font-size: 13px; }
 .test-id { color: #b49cff; font-weight: 700; }
+.execute-button, .report-button { margin-top: 17px; padding: 10px 14px; border: 0; border-radius: 9px; background: #9e7bf5; color: #fff; font-size: 13px; font-weight: 600; }
+.execute-button:hover, .report-button:hover { background: #af94fa; }
+.execution-card { margin: 24px 0 0 44px; padding: 18px; border: 1px solid #303443; border-radius: 14px; background: #181c26; }
+.results-list { margin-top: 16px; border-top: 1px solid #303443; }
+.result-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid #303443; color: #d5d2dd; }
+.result-item strong { font-size: 13px; }
+.result-item p { margin: 4px 0 0; color: #aaa7b3; font-size: 12px; }
+.result-status { min-width: 56px; padding: 4px 7px; border-radius: 6px; font-size: 10px; font-weight: 700; text-align: center; text-transform: uppercase; }
+.result-status.pass { background: #23452e; color: #9de0a8; }
+.result-status.fail { background: #4d272d; color: #f3a9b5; }
+.result-status.error { background: #4b3b20; color: #f0cb86; }
+.report-ready { margin: 10px 0 0; color: #91c99b; font-size: 12px; }
 
 .composer { width: 100%; flex: 0 0 auto; flex-shrink: 0; margin-top: 0; padding: 14px 17px 11px; border: 1px solid #393d4b; border-radius: 19px; background: #171b25; box-shadow: 0 3px 14px rgba(0, 0, 0, .2); }
 .composer textarea { width: 100%; height: 44px; min-height: 44px; max-height: 200px; padding: 8px 0; resize: none; overflow-y: hidden; border: 0; outline: 0; background: transparent; color: #ece9f2; font-size: 18px; line-height: 1.5; }
@@ -90,5 +102,5 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .brand { justify-content: center; padding: 0 0 25px; }.brand span, .qa-stepper { display: none; }
   .chat-content { width: calc(100% - 28px); padding-top: 36px; }
   .message.user .message-body { max-width: 88%; }.composer { padding: 12px 13px 9px; }.composer textarea { height: 44px; min-height: 44px; }.composer-tools span, .shortcut { display: none; }
-  .error-message, .plan-card, .bottom-actions { margin-left: 0; }
+  .error-message, .plan-card, .execution-card, .bottom-actions { margin-left: 0; }
 }

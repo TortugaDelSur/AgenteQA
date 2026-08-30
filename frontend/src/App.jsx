@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { generatePlan, sendChat } from './api/client';
+import { downloadReport, executePlan, generatePlan, sendChat } from './api/client';
 
 const welcomeMessage = {
   role: 'assistant',
@@ -56,6 +56,8 @@ export default function App() {
   const [messages, setMessages] = useState([welcomeMessage]);
   const [input, setInput] = useState('');
   const [plan, setPlan] = useState(null);
+  const [results, setResults] = useState(null);
+  const [report, setReport] = useState(null);
   const [context, setContext] = useState({
     objetivo: false,
     acceso: false,
@@ -84,6 +86,8 @@ export default function App() {
     setMessages([welcomeMessage]);
     setInput('');
     setPlan(null);
+    setResults(null);
+    setReport(null);
     setContext({ objetivo: false, acceso: false, alcance: false, repo: false, target_url: null });
     setError('');
     if (textareaRef.current) {
@@ -107,6 +111,44 @@ export default function App() {
       appendMessage('assistant', `Plan generado: ${data.test_cases.length} casos de prueba.`);
     } catch (err) {
       setError(err.message || 'No se pudo generar el plan');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleExecutePlan = async () => {
+    if (!sessionId || !plan || isLoading) return;
+
+    setError('');
+    setIsLoading(true);
+    try {
+      const data = await executePlan(sessionId);
+      setResults(data.results);
+      appendMessage('assistant', `Ejecución completada: ${data.results.length} casos procesados.`);
+    } catch (err) {
+      setError(err.message || 'No se pudo ejecutar el plan');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDownloadReport = async () => {
+    if (!sessionId || !results || isLoading) return;
+
+    setError('');
+    setIsLoading(true);
+    try {
+      const data = await downloadReport(sessionId);
+      setReport(data.content);
+      const blob = new Blob([data.content], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = data.filename;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || 'No se pudo generar el reporte');
     } finally {
       setIsLoading(false);
     }
@@ -201,6 +243,36 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+                <button className="execute-button" onClick={handleExecutePlan} disabled={isLoading}>
+                  Ejecutar plan de pruebas
+                </button>
+              </section>
+            )}
+
+            {results && (
+              <section className="execution-card">
+                <div className="plan-heading">
+                  <div>
+                    <span className="eyebrow">Ejecución</span>
+                    <h2>{results.length} resultados</h2>
+                  </div>
+                  <span className="plan-badge">Completada</span>
+                </div>
+                <div className="results-list">
+                  {results.map((result) => (
+                    <div className="result-item" key={`${result.test_case_id}-${result.detail}`}>
+                      <span className={`result-status ${result.status}`}>{result.status}</span>
+                      <div>
+                        <strong>{result.test_case_id}</strong>
+                        <p>{result.detail}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button className="report-button" onClick={handleDownloadReport} disabled={isLoading}>
+                  Descargar reporte Markdown
+                </button>
+                {report && <p className="report-ready">Reporte generado y descargado.</p>}
               </section>
             )}
           </div>

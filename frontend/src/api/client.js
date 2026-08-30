@@ -37,3 +37,30 @@ export async function generatePlan(sessionId) {
     body: JSON.stringify({ session_id: sessionId }),
   });
 }
+
+export async function executePlan(sessionId) {
+  return request('/execute', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
+export async function downloadReport(sessionId) {
+  const response = await fetch(`${API_BASE}/report/${sessionId}`);
+  const payload = await response.text();
+
+  if (!response.ok) {
+    let message = payload;
+    try {
+      message = JSON.parse(payload).detail || message;
+    } catch {
+      // La API puede responder texto plano en errores no JSON.
+    }
+    throw new Error(message || 'No se pudo generar el reporte');
+  }
+
+  return {
+    content: payload,
+    filename: response.headers.get('content-disposition')?.match(/filename="?([^"]+)/)?.[1] || 'reporte.md',
+  };
+}
