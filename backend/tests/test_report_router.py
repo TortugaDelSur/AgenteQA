@@ -87,6 +87,22 @@ def test_report_returns_markdown_attachment(client, monkeypatch):
     assert captured["result_status"] == "fail"
 
 
+def test_report_returns_html_when_format_html(client, monkeypatch):
+    session_id = _executed_session(client, monkeypatch)
+    monkeypatch.setattr(
+        report_router, "generate_report",
+        lambda plan, results: "# Reporte de QA\n\n| ID | Resultado |\n|----|----|\n| TC-01 | fail |\n",
+    )
+
+    resp = client.get(f"/api/report/{session_id}", params={"format": "html"})
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "reporte.html" in resp.headers["content-disposition"]
+    assert "<h1>Reporte de QA</h1>" in resp.text
+    assert "<table>" in resp.text  # la extension "tables" convirtio la tabla markdown
+
+
 def test_report_502_when_llm_fails(client, monkeypatch):
     session_id = _executed_session(client, monkeypatch)
 

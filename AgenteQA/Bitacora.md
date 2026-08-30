@@ -27,3 +27,7 @@
   - Tests actualizados (`test_execute_router.py`, `test_report_router.py`) al nuevo flujo de `execute.py`, mas 2 tests nuevos para el bloqueo de dominio. 82 tests, 98.76% cobertura.
   - Verificado end-to-end real contra armoniachile.cl: el plan corrio, el caso `endpoint` paso (fix 1 confirmado), el chequeo de dominio no bloqueo nada indebido (fix 2 sin falsos positivos), los fallos restantes son la limitacion ya documentada de elementos ocultos por defecto (busqueda colapsada, menu duplicado) — nada nuevo, ya conocido.
   - **MVP listo para liberar**: los 3 bloqueantes identificados estan resueltos.
+- 2026-08-29: **2 quick wins** implementados (Diego):
+  1. `temperature=0.1` en las 4 llamadas al LLM (`llm/client.py`: chat, generate_plan + su reintento, generate_report). Reduce (no elimina) el no-determinismo entre corridas observado durante las pruebas.
+  2. Reporte en HTML: `GET /api/report/{session_id}?format=html` (default sigue siendo `md`). Usa el paquete `markdown` (ya en requirements, sin usar hasta ahora) con extension `tables` para que la tabla de resultados se vea bien. Verificado en vivo: HTML valido con tabla renderizada.
+  - 83 tests, 98.78% cobertura.

@@ -8,6 +8,10 @@ from app.config import settings
 from app.llm.prompts import CHAT_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT, REPORT_SYSTEM_PROMPT
 from app.models.schemas import ChatMessage, ContextProgress, TestPlan, TestResult
 
+# temperature baja para que el checklist de contexto y el plan sean lo mas reproducibles posible
+# entre corridas (no elimina el no-determinismo del LLM, pero lo reduce bastante).
+TEMPERATURE = 0.1
+
 
 @lru_cache
 def get_client() -> OpenAI:
@@ -32,6 +36,7 @@ def chat(history: list[ChatMessage], page_snapshot: str | None = None) -> tuple[
         model=settings.deepseek_model,
         messages=messages,
         response_format={"type": "json_object"},
+        temperature=TEMPERATURE,
     )
     data = json.loads(response.choices[0].message.content)
     return data["reply"], ContextProgress(**data["context"])
@@ -49,6 +54,7 @@ def generate_plan(history: list[ChatMessage], page_snapshot: str | None = None) 
         model=settings.deepseek_model,
         messages=messages,
         response_format={"type": "json_object"},
+        temperature=TEMPERATURE,
     )
     raw = response.choices[0].message.content
 
@@ -67,6 +73,7 @@ def generate_plan(history: list[ChatMessage], page_snapshot: str | None = None) 
             model=settings.deepseek_model,
             messages=retry_messages,
             response_format={"type": "json_object"},
+            temperature=TEMPERATURE,
         )
         return _parse_test_plan(response.choices[0].message.content)
 
@@ -89,5 +96,6 @@ def generate_report(plan: TestPlan, results: list[TestResult]) -> str:
             {"role": "system", "content": REPORT_SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False, indent=2)},
         ],
+        temperature=TEMPERATURE,
     )
     return response.choices[0].message.content
