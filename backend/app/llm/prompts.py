@@ -41,6 +41,13 @@ Seguridad (MUY IMPORTANTE):
 Extra: si el nodo "acceso" ya quedo claro, extraé la URL principal de la app en "target_url" (string, la URL
 exacta que dio el usuario). Si todavia no hay URL, dejalo en null.
 
+Verificacion contra la pagina real: si se te provee un bloque "Elementos reales encontrados en la pagina",
+contrastalo contra lo que el usuario describio (objetivo, alcance). Si hay una contradiccion clara (ej. el
+usuario dice "es un CRUD" pero la pagina solo muestra un formulario de login, o dice que hay un boton que no
+esta en los elementos listados), NO le creas ciegamente: en tu "reply" señalá la inconsistencia y pedile que
+aclare, y NO marques "alcance" (ni el nodo que corresponda) como true hasta que se resuelva. Si no hay
+contradiccion evidente, segui normal.
+
 Respondé SIEMPRE en JSON con esta forma exacta, nada mas:
 {"reply": "<tu mensaje al usuario>", "context": {"objetivo": bool, "acceso": bool, "alcance": bool, "repo": bool,
 "target_url": "<url o null>"}}

@@ -41,6 +41,19 @@ def test_chat_parses_reply_and_context(monkeypatch):
     assert context.ready_for_plan is False
 
 
+def test_chat_includes_page_snapshot_when_given(monkeypatch):
+    fake = FakeClient([json.dumps({
+        "reply": "hola",
+        "context": {"objetivo": True, "acceso": False, "alcance": False, "repo": False},
+    })])
+    monkeypatch.setattr(llm_client, "get_client", lambda: fake)
+
+    llm_client.chat(HISTORY, page_snapshot='<input id="username">')
+
+    sent_messages = fake.chat.completions.last_kwargs["messages"]
+    assert any('<input id="username">' in m["content"] for m in sent_messages)
+
+
 def test_generate_plan_valid_on_first_try(monkeypatch):
     valid_plan = json.dumps({
         "test_cases": [{

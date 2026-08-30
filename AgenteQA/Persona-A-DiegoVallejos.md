@@ -14,6 +14,7 @@
 - [x] Tests minimos (`tests/test_schemas.py`) pasando
 - [x] Cobertura 97% (`test_llm_client.py`, `test_chat_router.py`, `test_plan_router.py`, mocks del LLM via monkeypatch, DB en memoria via `conftest.py`), gate de `--cov-fail-under=95` en `pytest.ini`
 - [x] `llm/page_inspector.py`: antes de generar el plan, si ya se sabe la `target_url`, hace un `GET` liviano (httpx + `html.parser` del stdlib, sin dependencias nuevas) y extrae los inputs/botones reales de la pagina. El LLM usa esos selectores reales en vez de inventar. Verificado en vivo contra `practicetestautomation.com/practice-test-login/`: genero `#username`/`#password`/`#submit`, que son los ids reales del HTML (confirmado inspeccionando la pagina directo).
+- [x] La inspeccion de pagina ahora tambien se usa en el chat (no solo al generar el plan): apenas se conoce `target_url`, cada turno siguiente le pasa al LLM los elementos reales para que contraste contra lo que el usuario describe. Si hay contradiccion (ej. usuario dice "es un CRUD" pero la pagina real es un login), el LLM ahora lo señala y no marca "alcance" como resuelto. Verificado en vivo: detecto la inconsistencia y pidio aclaracion en vez de generar un plan erroneo. Cobertura 97.65%.
 
 ## Contexto
 

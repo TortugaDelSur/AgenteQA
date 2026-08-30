@@ -5,7 +5,7 @@ from tests.fixtures import SAMPLE_TEST_PLAN
 
 
 def _new_session(client, monkeypatch) -> str:
-    monkeypatch.setattr(chat_router, "llm_chat", lambda history: ("hola", ContextProgress()))
+    monkeypatch.setattr(chat_router, "llm_chat", lambda history, page_snapshot=None: ("hola", ContextProgress()))
     return client.post("/api/chat", json={"message": "hola"}).json()["session_id"]
 
 
@@ -52,7 +52,7 @@ def test_post_plan_inspects_page_when_target_url_known(client, monkeypatch):
     # setea target_url directo en la sesion via un segundo turno de chat
     monkeypatch.setattr(
         chat_router, "llm_chat",
-        lambda history: ("ok", ContextProgress(objetivo=True, acceso=True, target_url="https://x.com")),
+        lambda history, page_snapshot=None: ("ok", ContextProgress(objetivo=True, acceso=True, target_url="https://x.com")),
     )
     client.post("/api/chat", json={"session_id": session_id, "message": "url https://x.com"})
 

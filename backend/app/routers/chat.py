@@ -6,6 +6,7 @@ from openai import OpenAIError
 from sqlalchemy.orm import Session as OrmSession
 
 from app.llm.client import chat as llm_chat
+from app.llm.page_inspector import inspect_page
 from app.models.db import Message, Session, get_db
 from app.models.schemas import ChatHistoryResponse, ChatMessage, ChatRequest, ChatResponse, ContextProgress
 
@@ -20,6 +21,10 @@ def post_chat(req: ChatRequest, db: OrmSession = Depends(get_db)) -> ChatRespons
         db.add(session)
         db.flush()
 
+    # ponytail: recalcula la inspeccion cada turno (sin cache), cachear en Session si se vuelve lento.
+    previous_context = ContextProgress(**json.loads(session.context_json))
+    page_snapshot = inspect_page(previous_context.target_url) if previous_context.target_url else None
+
     db.add(Message(session_id=session.id, role="user", content=req.message))
     db.flush()
 
@@ -29,7 +34,7 @@ def post_chat(req: ChatRequest, db: OrmSession = Depends(get_db)) -> ChatRespons
     ]
 
     try:
-        reply, context = llm_chat(history)
+        reply, context = llm_chat(history, page_snapshot=page_snapshot)
     except (OpenAIError, KeyError, ValueError, json.JSONDecodeError) as e:
         raise HTTPException(status_code=502, detail=f"El LLM no respondio correctamente: {e}")
 

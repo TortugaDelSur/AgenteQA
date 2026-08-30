@@ -20,10 +20,17 @@ def _to_openai_messages(system_prompt: str, history: list[ChatMessage]) -> list[
     return messages
 
 
-def chat(history: list[ChatMessage]) -> tuple[str, ContextProgress]:
+def chat(history: list[ChatMessage], page_snapshot: str | None = None) -> tuple[str, ContextProgress]:
+    messages = _to_openai_messages(CHAT_SYSTEM_PROMPT, history)
+    if page_snapshot:
+        messages.append({
+            "role": "user",
+            "content": f"Elementos reales encontrados en la pagina (para contrastar contra lo que decis):\n{page_snapshot}",
+        })
+
     response = get_client().chat.completions.create(
         model=settings.deepseek_model,
-        messages=_to_openai_messages(CHAT_SYSTEM_PROMPT, history),
+        messages=messages,
         response_format={"type": "json_object"},
     )
     data = json.loads(response.choices[0].message.content)
