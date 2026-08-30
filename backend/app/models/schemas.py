@@ -1,6 +1,9 @@
 from typing import Literal
+from urllib.parse import urljoin, urlparse
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+MAX_EXTRA_URLS = 8
 
 
 class ContextProgress(BaseModel):
@@ -18,6 +21,28 @@ class ContextProgress(BaseModel):
     @property
     def ready_for_plan(self) -> bool:
         return self.objetivo and self.acceso and self.alcance
+
+    @model_validator(mode="after")
+    def _sanitize_extra_urls(self) -> "ContextProgress":
+        """El LLM a veces vuelca TODOS los links de navegacion que ve en vez de solo los que el
+        usuario confirmo (probado en vivo: 44 urls, incluyendo rutas relativas rotas y dominios
+        externos tipo github.com). Filtro duro: solo mismo dominio que target_url, resuelve rutas
+        relativas contra esa URL, y limita la cantidad — no depende de que el prompt se porte bien.
+        """
+        if not self.target_url or not self.extra_urls:
+            self.extra_urls = []
+            return self
+
+        target_host = urlparse(self.target_url).netloc
+        sanitized: list[str] = []
+        for url in self.extra_urls:
+            resolved = urljoin(self.target_url, url)
+            if urlparse(resolved).netloc == target_host and resolved not in sanitized:
+                sanitized.append(resolved)
+            if len(sanitized) >= MAX_EXTRA_URLS:
+                break
+        self.extra_urls = sanitized
+        return self
 
 
 class ChatMessage(BaseModel):

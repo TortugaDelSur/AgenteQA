@@ -24,3 +24,34 @@ def test_testcase_id_rejects_path_traversal():
 
 def test_testcase_id_accepts_normal_ids():
     TestCase(id="TC-01", type="endpoint", title="x")
+
+
+def test_extra_urls_drops_external_domains_and_resolves_relative_paths():
+    # bug real: el LLM volco 44 urls, incluyendo rutas relativas y dominios externos
+    # (github.com, elementalselenium.com) sin que el usuario las confirmara.
+    context = ContextProgress(
+        target_url="https://the-internet.herokuapp.com",
+        extra_urls=[
+            "https://github.com/tourdedave/the-internet",
+            "/checkboxes",
+            "/dropdown",
+            "http://elementalselenium.com/",
+        ],
+    )
+
+    assert context.extra_urls == [
+        "https://the-internet.herokuapp.com/checkboxes",
+        "https://the-internet.herokuapp.com/dropdown",
+    ]
+
+
+def test_extra_urls_capped_at_max():
+    many_urls = [f"/page{i}" for i in range(20)]
+    context = ContextProgress(target_url="https://x.com", extra_urls=many_urls)
+
+    assert len(context.extra_urls) == 8
+
+
+def test_extra_urls_empty_without_target_url():
+    context = ContextProgress(extra_urls=["/foo", "https://x.com/bar"])
+    assert context.extra_urls == []

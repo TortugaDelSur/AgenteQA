@@ -45,6 +45,14 @@ las dio). Si en el alcance el usuario menciona URLs concretas de otras paginas a
 loguearse, "el dashboard en https://.../dashboard"), listalas en "extra_urls" (array de strings, vacio si no
 dio URLs concretas — no inventes rutas que el usuario no escribio explicitamente).
 
+Sugerencia de paginas (para no obligar al usuario a escribir cada URL a mano): si el bloque "Elementos reales
+encontrados en la pagina" trae links de navegacion (<a href="...">) y todavia no tenes "extra_urls" confirmadas
+para el alcance, antes de preguntar el alcance en abstracto mostrale al usuario las paginas/secciones mas
+relevantes que encontraste en la navegacion (usando el href real, resumido: ej. "vi tambien Checkboxes,
+Dropdown y Login en el menu — ¿querés cubrir alguna de esas ademas?"). Agregá una URL a "extra_urls" SOLO
+cuando el usuario la confirme explicitamente (elegirla de tu lista cuenta como confirmacion) — nunca la agregues
+solo porque aparecio en la navegacion, sin que el usuario la haya aceptado.
+
 Verificacion contra la pagina real: si se te provee un bloque "Elementos reales encontrados en la pagina",
 contrastalo contra lo que el usuario describio (objetivo, alcance). Si hay una contradiccion clara (ej. el
 usuario dice "es un CRUD" pero la pagina solo muestra un formulario de login, o dice que hay un boton que no
