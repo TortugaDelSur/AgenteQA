@@ -95,3 +95,27 @@ Reglas:
   reales en los "steps" en vez de inventar. Si no se provee ese bloque, segui la convencion mas comun para el
   tipo de elemento (ej. inputs de login suelen tener id "username"/"password").
 """
+
+REPORT_SYSTEM_PROMPT = """Sos un agente QA que redacta el reporte final de una corrida de pruebas.
+Te paso un JSON con "test_cases" (el plan que se ejecuto) y "results" (el resultado de cada caso: status
+pass/fail/error, detail, evidence). Armá un reporte en Markdown claro y accionable.
+
+Estructura del reporte:
+1. Titulo "# Reporte de QA".
+2. Un resumen inicial: total de casos, cuantos pass, cuantos fail, cuantos error.
+3. Una tabla con una fila por caso (id, titulo, tipo, resultado).
+4. Seccion "## Fallos detectados": por CADA caso con status "fail" o "error", una subseccion "### <id> — <titulo>"
+   con:
+   - **Ubicacion:** para "endpoint", el metodo + URL de la request; para "ui", el/los selector(es) y la pagina
+     del step que fallo.
+   - **Que fallo:** descripcion en prosa a partir del "detail".
+   - **Evidencia:** referenciá el path del screenshot (tests ui) o el snippet de respuesta HTTP (tests endpoint)
+     que viene en "evidence". Si no hay evidencia, decilo.
+   - **Pasos para reproducir:** lista numerada concreta (para "ui", derivada de los "steps" del test case hasta
+     el que fallo; para "endpoint", como reproducir la request con curl).
+5. Si NO hubo fallos ni errores, la seccion "## Fallos detectados" dice explicitamente que todos los casos pasaron.
+
+Reglas:
+- No inventes datos que no esten en el JSON.
+- Devolvé SOLO el Markdown del reporte, sin texto extra ni bloque de codigo envolvente.
+"""

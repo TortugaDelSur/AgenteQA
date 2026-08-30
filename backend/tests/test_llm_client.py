@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.llm import client as llm_client
-from app.models.schemas import ChatMessage
+from app.models.schemas import ChatMessage, TestPlan, TestResult
 
 
 class FakeCompletions:
@@ -121,6 +121,21 @@ def test_generate_plan_includes_page_snapshot_when_given(monkeypatch):
     assert any('<input id="username">' in m["content"] for m in sent_messages)
 
 
-def test_generate_report_not_implemented():
-    with pytest.raises(NotImplementedError):
-        llm_client.generate_report(plan=None, results=[])
+def test_generate_report_builds_markdown_from_plan_and_results(monkeypatch):
+    fake = FakeClient(["# Reporte de QA\n\n- TC-01: fail\n"])
+    monkeypatch.setattr(llm_client, "get_client", lambda: fake)
+
+    plan = TestPlan(test_cases=[{
+        "id": "TC-01", "type": "endpoint", "title": "health check",
+        "request": {"method": "GET", "url": "https://x.com/health"},
+        "expected_status": 200,
+    }])
+    results = [TestResult(test_case_id="TC-01", status="fail", detail="esperaba 200, recibio 500")]
+
+    report = llm_client.generate_report(plan, results)
+
+    assert report.startswith("# Reporte de QA")
+    sent_messages = fake.chat.completions.last_kwargs["messages"]
+    assert sent_messages[0]["role"] == "system"
+    assert "TC-01" in sent_messages[1]["content"]
+    assert "esperaba 200, recibio 500" in sent_messages[1]["content"]

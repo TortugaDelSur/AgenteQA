@@ -5,8 +5,8 @@ from openai import OpenAI
 from pydantic import ValidationError
 
 from app.config import settings
-from app.llm.prompts import CHAT_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT
-from app.models.schemas import ChatMessage, ContextProgress, TestPlan
+from app.llm.prompts import CHAT_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT, REPORT_SYSTEM_PROMPT
+from app.models.schemas import ChatMessage, ContextProgress, TestPlan, TestResult
 
 
 @lru_cache
@@ -67,5 +67,16 @@ def generate_plan(history: list[ChatMessage], page_snapshot: str | None = None) 
         return TestPlan(**json.loads(response.choices[0].message.content))
 
 
-def generate_report(plan: TestPlan, results: list) -> str:
-    raise NotImplementedError("Implementado por Persona B")
+def generate_report(plan: TestPlan, results: list[TestResult]) -> str:
+    payload = {
+        "test_cases": [tc.model_dump() for tc in plan.test_cases],
+        "results": [r.model_dump() for r in results],
+    }
+    response = get_client().chat.completions.create(
+        model=settings.deepseek_model,
+        messages=[
+            {"role": "system", "content": REPORT_SYSTEM_PROMPT},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False, indent=2)},
+        ],
+    )
+    return response.choices[0].message.content
