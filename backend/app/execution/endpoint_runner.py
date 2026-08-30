@@ -1,5 +1,6 @@
 import httpx
 
+from app.llm.page_inspector import REQUEST_HEADERS
 from app.models.schemas import TestCase, TestResult
 
 TIMEOUT_SECONDS = 15.0
@@ -19,7 +20,9 @@ async def run_endpoint(tc: TestCase, client: httpx.AsyncClient | None = None) ->
         )
 
     own_client = client is None
-    client = client or httpx.AsyncClient(timeout=TIMEOUT_SECONDS, follow_redirects=True)
+    # sin un User-Agent de navegador real, muchos sitios en produccion (WAF/anti-bot) cortan la
+    # conexion sin devolver respuesta (probado en vivo contra un sitio real).
+    client = client or httpx.AsyncClient(timeout=TIMEOUT_SECONDS, follow_redirects=True, headers=REQUEST_HEADERS)
     try:
         response = await client.request(
             req.method, req.url, headers=req.headers or None, json=req.body

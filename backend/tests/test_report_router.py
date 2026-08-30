@@ -9,8 +9,11 @@ from tests.fixtures import SAMPLE_TEST_PLAN
 
 
 def _session(client, monkeypatch) -> str:
+    # target_url coincide con el dominio de SAMPLE_TEST_PLAN (example.com) para que el chequeo
+    # de dominio de execute.py no bloquee estos tests.
     monkeypatch.setattr(
-        chat_router, "llm_chat", lambda history, page_snapshot=None: ("hola", ContextProgress())
+        chat_router, "llm_chat",
+        lambda history, page_snapshot=None: ("hola", ContextProgress(target_url="https://example.com")),
     )
     return client.post("/api/chat", json={"message": "hola"}).json()["session_id"]
 
@@ -27,10 +30,12 @@ def _session_with_plan(client, monkeypatch) -> str:
 def _executed_session(client, monkeypatch) -> str:
     session_id = _session_with_plan(client, monkeypatch)
 
-    async def fake_run_plan_stream(sid, plan):
-        yield TestResult(test_case_id="TC-01", status="fail", detail="boom", evidence="TC-01.png")
+    async def fake_run_test_case(tc, sid):
+        if tc.id == "TC-01":
+            return TestResult(test_case_id="TC-01", status="fail", detail="boom", evidence="TC-01.png")
+        return TestResult(test_case_id=tc.id, status="pass", detail="ok")
 
-    monkeypatch.setattr(execute_router, "run_plan_stream", fake_run_plan_stream)
+    monkeypatch.setattr(execute_router, "run_test_case", fake_run_test_case)
     client.post("/api/execute", json={"session_id": session_id})
     return session_id
 
@@ -78,7 +83,7 @@ def test_report_returns_markdown_attachment(client, monkeypatch):
     assert "reporte.md" in resp.headers["content-disposition"]
     assert resp.text.startswith("# Reporte de QA")
     assert captured["n_cases"] == len(SAMPLE_TEST_PLAN.test_cases)
-    assert captured["n_results"] == 1
+    assert captured["n_results"] == len(SAMPLE_TEST_PLAN.test_cases)
     assert captured["result_status"] == "fail"
 
 

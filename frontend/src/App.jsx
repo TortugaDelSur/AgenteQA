@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { downloadReport, executePlan, generatePlan, sendChat } from './api/client';
+import { downloadReport, executePlan, generatePlan, getChatHistory, sendChat } from './api/client';
 
 const welcomeMessage = {
   role: 'assistant',
   content: 'Hola, soy AgenteQA. Puedo ayudarte a diseñar pruebas para tu web o API. Cuéntame qué quieres validar.',
 };
+
+const SESSION_STORAGE_KEY = 'agenteqa_session_id';
 
 function QaStepper({ context, hasPlan }) {
   const completed = [
@@ -78,6 +80,32 @@ export default function App() {
     }
   }, [messages, isLoading, error, plan]);
 
+  // recupera la conversacion si el usuario refresca la pagina (no recupera plan/resultados,
+  // el backend no tiene un endpoint para volver a pedir el ultimo plan generado sin regenerarlo).
+  useEffect(() => {
+    let savedSessionId;
+    try {
+      savedSessionId = localStorage.getItem(SESSION_STORAGE_KEY);
+    } catch {
+      return;
+    }
+    if (!savedSessionId) return;
+
+    getChatHistory(savedSessionId)
+      .then((history) => {
+        setSessionId(history.session_id);
+        setMessages(history.messages.length ? history.messages : [welcomeMessage]);
+        setContext(history.context);
+      })
+      .catch(() => {
+        try {
+          localStorage.removeItem(SESSION_STORAGE_KEY);
+        } catch {
+          // localStorage no disponible (modo privado, etc): no hay nada que limpiar
+        }
+      });
+  }, []);
+
   const appendMessage = (role, content) => {
     setMessages((current) => [...current, { role, content }]);
   };
@@ -92,6 +120,11 @@ export default function App() {
     setReport(null);
     setContext({ objetivo: false, acceso: false, alcance: false, repo: false, target_url: null });
     setError('');
+    try {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+    } catch {
+      // localStorage no disponible: no hay nada que limpiar
+    }
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -178,6 +211,11 @@ export default function App() {
     try {
       const data = await sendChat({ message: value, sessionId });
       setSessionId(data.session_id);
+      try {
+        localStorage.setItem(SESSION_STORAGE_KEY, data.session_id);
+      } catch {
+        // localStorage no disponible (modo privado, etc): la sesion sigue funcionando en memoria
+      }
       setContext(data.context);
       appendMessage('assistant', data.reply);
 
