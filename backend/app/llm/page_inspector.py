@@ -2,20 +2,37 @@ from html.parser import HTMLParser
 
 import httpx
 
-INTERESTING_TAGS = {"input", "button", "a", "form", "select", "textarea"}
-MAX_ELEMENTS = 40
+FORM_TAGS = {"input", "button", "form", "select", "textarea"}
+NAV_TAGS = {"a"}
+MAX_ELEMENTS = 60
 
 
 class _FormElementExtractor(HTMLParser):
+    """Prioriza inputs/botones/forms sobre links de navegacion.
+
+    Una pagina con un menu grande (muchos <a>) puede pisar el presupuesto de elementos
+    antes de llegar al formulario real si no se prioriza — los <a> solo llenan lo que sobra.
+    """
+
     def __init__(self):
         super().__init__()
-        self.elements: list[str] = []
+        self.form_elements: list[str] = []
+        self.nav_elements: list[str] = []
 
     def handle_starttag(self, tag, attrs):
-        if tag not in INTERESTING_TAGS or len(self.elements) >= MAX_ELEMENTS:
+        if tag not in FORM_TAGS and tag not in NAV_TAGS:
             return
         attr_str = " ".join(f'{k}="{v}"' for k, v in attrs if k in ("id", "name", "type", "placeholder", "href"))
-        self.elements.append(f"<{tag} {attr_str}>".strip())
+        element = f"<{tag} {attr_str}>".strip()
+        if tag in FORM_TAGS:
+            self.form_elements.append(element)
+        else:
+            self.nav_elements.append(element)
+
+    @property
+    def elements(self) -> list[str]:
+        remaining = max(0, MAX_ELEMENTS - len(self.form_elements))
+        return self.form_elements + self.nav_elements[:remaining]
 
 
 def inspect_page(url: str) -> str | None:

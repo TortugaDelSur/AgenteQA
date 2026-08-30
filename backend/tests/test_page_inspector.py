@@ -36,6 +36,17 @@ def test_returns_none_on_http_error(monkeypatch):
     assert page_inspector.inspect_page("https://x.com") is None
 
 
+def test_nav_links_dont_crowd_out_form_elements(monkeypatch):
+    # muchos <a> de navegacion antes del form real en el HTML
+    nav = "".join(f'<a href="/page{i}">link{i}</a>' for i in range(page_inspector.MAX_ELEMENTS + 10))
+    html = f'<html><body>{nav}<form><input id="real-input" name="x"></form></body></html>'
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: FakeResponse(html))
+
+    result = page_inspector.inspect_page("https://x.com")
+
+    assert 'id="real-input"' in result
+
+
 def test_returns_none_when_no_relevant_elements(monkeypatch):
     monkeypatch.setattr(httpx, "get", lambda *a, **k: FakeResponse("<html><body><p>hola</p></body></html>"))
 
