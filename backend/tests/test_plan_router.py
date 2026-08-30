@@ -62,6 +62,71 @@ def test_post_plan_inspects_page_when_target_url_known(client, monkeypatch):
     assert captured["page_snapshot"] == "<input id=\"x\">"
 
 
+def test_post_plan_uses_authenticated_inspection_when_credentials_known(client, monkeypatch):
+    session_id = _new_session(client, monkeypatch)
+
+    async def fake_inspect_with_login(login_url, username, password, extra_urls, browser=None):
+        assert (login_url, username, password, extra_urls) == ("https://x.com", "user", "pass", ["https://x.com/dash"])
+        return {"https://x.com": "<input id=\"real\">"}
+
+    monkeypatch.setattr(plan_router, "inspect_with_login", fake_inspect_with_login)
+    monkeypatch.setattr(plan_router, "inspect_page", lambda url: "no deberia usarse")
+
+    captured = {}
+
+    def fake_generate_plan(history, page_snapshot=None):
+        captured["page_snapshot"] = page_snapshot
+        return SAMPLE_TEST_PLAN
+
+    monkeypatch.setattr(plan_router, "generate_plan", fake_generate_plan)
+
+    monkeypatch.setattr(
+        chat_router, "llm_chat",
+        lambda history, page_snapshot=None: ("ok", ContextProgress(
+            objetivo=True, acceso=True, target_url="https://x.com",
+            username="user", password="pass", extra_urls=["https://x.com/dash"],
+        )),
+    )
+    client.post("/api/chat", json={"session_id": session_id, "message": "login user/pass"})
+
+    resp = client.post("/api/plan", json={"session_id": session_id})
+
+    assert resp.status_code == 200
+    assert "== https://x.com ==" in captured["page_snapshot"]
+    assert 'id="real"' in captured["page_snapshot"]
+
+
+def test_post_plan_falls_back_to_static_when_login_fails(client, monkeypatch):
+    session_id = _new_session(client, monkeypatch)
+
+    async def failing_login(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(plan_router, "inspect_with_login", failing_login)
+    monkeypatch.setattr(plan_router, "inspect_page", lambda url: "<input id=\"fallback\">")
+
+    captured = {}
+
+    def fake_generate_plan(history, page_snapshot=None):
+        captured["page_snapshot"] = page_snapshot
+        return SAMPLE_TEST_PLAN
+
+    monkeypatch.setattr(plan_router, "generate_plan", fake_generate_plan)
+
+    monkeypatch.setattr(
+        chat_router, "llm_chat",
+        lambda history, page_snapshot=None: ("ok", ContextProgress(
+            objetivo=True, acceso=True, target_url="https://x.com", username="user", password="pass",
+        )),
+    )
+    client.post("/api/chat", json={"session_id": session_id, "message": "login user/pass"})
+
+    resp = client.post("/api/plan", json={"session_id": session_id})
+
+    assert resp.status_code == 200
+    assert captured["page_snapshot"] == "<input id=\"fallback\">"
+
+
 def test_post_plan_skips_inspection_without_target_url(client, monkeypatch):
     session_id = _new_session(client, monkeypatch)
     called = {"count": 0}

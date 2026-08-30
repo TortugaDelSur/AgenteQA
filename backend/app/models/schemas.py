@@ -9,6 +9,11 @@ class ContextProgress(BaseModel):
     alcance: bool = False
     repo: bool = False
     target_url: str | None = None
+    # credenciales de prueba (no reales) para poder loguearse durante la inspeccion de pagina.
+    username: str | None = None
+    password: str | None = None
+    # paginas extra mencionadas por el usuario en el alcance (post-login), si dio URLs concretas.
+    extra_urls: list[str] = []
 
     @property
     def ready_for_plan(self) -> bool:

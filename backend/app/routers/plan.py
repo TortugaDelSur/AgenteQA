@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 from sqlalchemy.orm import Session as OrmSession
 
+from app.llm.authenticated_inspector import format_snapshots, inspect_with_login
 from app.llm.client import generate_plan
 from app.llm.page_inspector import inspect_page
 from app.models.db import Message, Plan, Session, get_db
@@ -12,8 +13,23 @@ from app.models.schemas import ChatMessage, ContextProgress, PlanRequest, TestPl
 router = APIRouter()
 
 
+async def _build_page_snapshot(context: ContextProgress) -> str | None:
+    if not context.target_url:
+        return None
+
+    if context.username and context.password:
+        snapshots = await inspect_with_login(
+            context.target_url, context.username, context.password, context.extra_urls,
+        )
+        if snapshots:
+            return format_snapshots(snapshots)
+        # login o navegacion fallo (selectores no encontrados, timeout, etc): cae al estatico.
+
+    return inspect_page(context.target_url)
+
+
 @router.post("/api/plan", response_model=TestPlan)
-def post_plan(req: PlanRequest, db: OrmSession = Depends(get_db)) -> TestPlan:
+async def post_plan(req: PlanRequest, db: OrmSession = Depends(get_db)) -> TestPlan:
     session = db.get(Session, req.session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -24,7 +40,7 @@ def post_plan(req: PlanRequest, db: OrmSession = Depends(get_db)) -> TestPlan:
     ]
 
     context = ContextProgress(**json.loads(session.context_json))
-    page_snapshot = inspect_page(context.target_url) if context.target_url else None
+    page_snapshot = await _build_page_snapshot(context)
 
     try:
         plan = generate_plan(history, page_snapshot=page_snapshot)

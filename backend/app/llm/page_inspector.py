@@ -35,12 +35,26 @@ class _FormElementExtractor(HTMLParser):
         return self.form_elements + self.nav_elements[:remaining]
 
 
+def extract_elements(html: str) -> str | None:
+    """Parsea HTML (crudo o ya renderizado por un browser) y devuelve el resumen de elementos.
+
+    Compartido entre `inspect_page` (HTML crudo via httpx) y `authenticated_inspector`
+    (HTML ya renderizado por Playwright, con JS ejecutado).
+    """
+    parser = _FormElementExtractor()
+    parser.feed(html)
+    if not parser.elements:
+        return None
+    return "\n".join(parser.elements)
+
+
 def inspect_page(url: str) -> str | None:
     """Trae el HTML de la url y devuelve un resumen de los elementos de formulario/navegacion.
 
-    ponytail: solo lee el HTML crudo (sin JS). Si la pagina es una SPA que renderiza el form
-    con JavaScript, esto no va a encontrar nada util — ahi hace falta un browser real
-    (Playwright, que ya usa el runner de ejecucion de Persona B). Se degrada devolviendo None.
+    ponytail: solo lee el HTML crudo (sin JS), sin autenticarse. Si la pagina es una SPA que
+    renderiza el form con JavaScript, o esta detras de un login, esto no va a encontrar nada
+    util — ahi hace falta un browser real logueado (ver `authenticated_inspector.py`). Se
+    degrada devolviendo None.
     """
     try:
         response = httpx.get(url, timeout=10, follow_redirects=True)
@@ -48,10 +62,4 @@ def inspect_page(url: str) -> str | None:
     except httpx.HTTPError:
         return None
 
-    parser = _FormElementExtractor()
-    parser.feed(response.text)
-
-    if not parser.elements:
-        return None
-
-    return "\n".join(parser.elements)
+    return extract_elements(response.text)

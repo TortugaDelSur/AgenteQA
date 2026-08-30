@@ -21,6 +21,13 @@
   - SPA (demoqa.com/text-box): `inspect_page` devuelve `None` (HTML vacio, `<div id="root">`, React renderiza client-side) — se degrada bien sin romper, pero el LLM adivino selectores correctos porque conoce el sitio de su entrenamiento, no por inspeccion real. Limitacion confirmada: con una SPA menos conocida podria fallar.
   - Limitacion de LLM (no de codigo): en un caso, el modelo señalo la inconsistencia en el texto pero no bajo el flag `alcance` a `false` — el guardrail de consistencia vive en el prompt, no es 100% determinista entre corridas. No se intento forzar con mas prompt-engineering (rendimiento decreciente); si se necesita garantia dura, habria que agregar validacion de codigo comparando contra el `page_snapshot`.
   - Cobertura tras el fix: 97.75%, 26 tests.
+- 2026-08-29: agregado pre-vuelo de inspeccion autenticada (`llm/authenticated_inspector.py`). Pregunta que lo origino: "si la pagina tiene login pero el usuario quiere testear mas paginas, como accede el modelo?". Antes, paginas detras de login nunca se veian (el `GET` estatico no se autentica), el plan para esas paginas se armaba solo con lo que decia el usuario, sin verificar.
+  - `ContextProgress` ahora tambien extrae `username`/`password` (credenciales de prueba) y `extra_urls` (paginas concretas post-login que el usuario menciona) — mismo mecanismo que `target_url`.
+  - Reusa Playwright (ya lo tiene el proyecto por el modulo de ejecucion de Sebastian, sin dependencia nueva): loguea de verdad con heuristica de selectores (`input[type="password"]`, `input[type="email"|"text"|name*="user"]`, `button/input[type="submit"]`), navega cada `extra_url`, y saca los elementos reales de cada pagina autenticada. Si el login falla (selectores no encontrados, timeout), cae al `inspect_page` estatico sin romper el flujo.
+  - `page_inspector.py` refactorizado: el parser de elementos ahora es compartido (`extract_elements`) entre la inspeccion estatica y la autenticada.
+  - Solo se ejecuta al generar el plan (`POST /api/plan`), no en cada turno de chat — un login+navegacion real tarda varios segundos, hacerlo por mensaje seria muy lento.
+  - Verificado en vivo contra `the-internet.herokuapp.com/login` + `/secure`: logueo real, extrajo `<a href="/logout">` (elemento real de la pagina autenticada), y el plan generado uso ese selector exacto. Tiempo total (login + LLM): ~7.75s.
+  - Tests con browser/page fake inyectado (mismo patron que `test_ui_runner.py` de Sebastian): login exitoso, fallo de login (cae a estatico), url extra que falla (no tumba las demas). Cobertura 98.79%, 67 tests.
 
 ## Contexto
 
