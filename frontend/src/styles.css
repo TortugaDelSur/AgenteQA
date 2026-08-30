@@ -48,7 +48,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .nav-label { display: block; padding: 0 12px 10px; color: #777583; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
 .conversation { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; background: #222633; color: #d2cfdb; font-size: 13px; text-align: left; }
 .conversation-icon { color: #9e7bf5; font-size: 17px; }
-.sidebar-bottom { margin-top: auto; }
+.sidebar-bottom { margin-top: auto; padding-bottom: 16px; }
 .provider { display: flex; align-items: center; gap: 10px; padding: 13px 10px; margin-bottom: 12px; border-top: 1px solid #292d3a; border-bottom: 1px solid #292d3a; }
 .provider-dot { width: 8px; height: 8px; border-radius: 50%; background: #7bc48a; }
 .provider strong, .provider small { display: block; }

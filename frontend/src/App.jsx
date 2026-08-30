@@ -142,11 +142,6 @@ export default function App() {
               <small>Asistente listo</small>
             </div>
           </div>
-          <div className="user-menu">
-            <span className="avatar">K</span>
-            <span>KuroroSouls</span>
-            <span className="menu-dots">•••</span>
-          </div>
         </div>
       </aside>
 
