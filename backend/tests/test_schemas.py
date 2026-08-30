@@ -5,9 +5,12 @@ from app.models.schemas import ContextProgress, TestCase
 from tests.fixtures import SAMPLE_TEST_PLAN
 
 
-def test_ready_for_plan_requires_three_mandatory_nodes():
+def test_ready_for_plan_requires_all_four_nodes():
+    # "repo" tambien bloquea: si no, el front puede disparar el plan mientras el chat
+    # todavia esta preguntando por el repo en el mismo mensaje, cortandole el flujo al usuario.
+    assert not ContextProgress(objetivo=True, acceso=True, alcance=True).ready_for_plan
     assert not ContextProgress(objetivo=True, acceso=True).ready_for_plan
-    assert ContextProgress(objetivo=True, acceso=True, alcance=True).ready_for_plan
+    assert ContextProgress(objetivo=True, acceso=True, alcance=True, repo=True).ready_for_plan
 
 
 def test_sample_plan_has_ui_and_endpoint_cases():

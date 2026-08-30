@@ -20,7 +20,10 @@ class ContextProgress(BaseModel):
 
     @property
     def ready_for_plan(self) -> bool:
-        return self.objetivo and self.acceso and self.alcance
+        # "repo" tambien bloquea (aunque el usuario no tenga uno, igual hay que preguntarle):
+        # si no bloqueara, el front puede disparar el plan en el mismo turno en que el chat
+        # todavia esta preguntando por el repo, cortandole la respuesta al usuario.
+        return self.objetivo and self.acceso and self.alcance and self.repo
 
     @model_validator(mode="after")
     def _sanitize_extra_urls(self) -> "ContextProgress":
