@@ -6,11 +6,63 @@ const welcomeMessage = {
   content: 'Hola, soy AgenteQA. Puedo ayudarte a diseñar pruebas para tu web o API. Cuéntame qué quieres validar.',
 };
 
+function QaStepper({ context, hasPlan }) {
+  const completed = [
+    Boolean(context.objetivo),
+    Boolean(context.acceso),
+    Boolean(context.alcance),
+    Boolean(context.objetivo && context.acceso && context.alcance),
+    hasPlan,
+  ];
+  const activeIndex = completed.findIndex((isCompleted) => !isCompleted);
+  const steps = [
+    { id: 'objective', title: 'Objetivo', description: 'Qué quieres validar' },
+    { id: 'app', title: 'Tipo de aplicación', description: 'Web, API o ambas' },
+    { id: 'flow', title: 'Endpoints y flujo', description: 'Alcance de las pruebas' },
+    { id: 'cases', title: 'Casos de prueba', description: 'Contexto listo para planificar' },
+    { id: 'plan', title: 'Plan generado', description: 'Plan listo para revisar' },
+  ];
+
+  return (
+    <section className="qa-stepper" aria-label="Progreso de QA">
+      <div className="stepper-heading">
+        <span className="stepper-eyebrow">Progreso de QA</span>
+        <span className="stepper-count">{completed.filter(Boolean).length}/{steps.length}</span>
+      </div>
+      <div className="stepper-list">
+        {steps.map((step, index) => {
+          const isCompleted = completed[index];
+          const isActive = !isCompleted && index === activeIndex;
+          return (
+            <div className={`step ${isCompleted ? 'completed' : ''} ${isActive ? 'active' : ''}`} key={step.id}>
+              <div className="step-rail">
+                <span className="step-marker">{isCompleted ? '✓' : index + 1}</span>
+                {index < steps.length - 1 && <span className="step-line" />}
+              </div>
+              <div className="step-content">
+                <strong>{step.title}</strong>
+                <small>{step.description}</small>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   const [sessionId, setSessionId] = useState('');
   const [messages, setMessages] = useState([welcomeMessage]);
   const [input, setInput] = useState('');
   const [plan, setPlan] = useState(null);
+  const [context, setContext] = useState({
+    objetivo: false,
+    acceso: false,
+    alcance: false,
+    repo: false,
+    target_url: null,
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -19,6 +71,7 @@ export default function App() {
     setMessages([welcomeMessage]);
     setInput('');
     setPlan(null);
+    setContext({ objetivo: false, acceso: false, alcance: false, repo: false, target_url: null });
     setError('');
   };
 
@@ -35,6 +88,7 @@ export default function App() {
     try {
       const data = await sendChat({ message: value, sessionId });
       setSessionId(data.session_id);
+      setContext(data.context);
       setMessages((current) => [...current, { role: 'assistant', content: data.reply }]);
     } catch (err) {
       setError(err.message || 'No se pudo enviar el mensaje');
@@ -70,18 +124,7 @@ export default function App() {
           <span>AgenteQA</span>
         </div>
 
-        <button className="new-chat" onClick={resetChat}>
-          <span className="plus">+</span>
-          Nueva conversación
-        </button>
-
-        <nav className="side-nav" aria-label="Navegación principal">
-          <span className="nav-label">Recientes</span>
-          <button className="conversation active">
-            <span className="conversation-icon">◌</span>
-            QA conversacional
-          </button>
-        </nav>
+        <QaStepper context={context} hasPlan={Boolean(plan)} />
 
         <div className="sidebar-bottom">
           <div className="provider">
