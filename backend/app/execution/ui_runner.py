@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 
 from app.models.schemas import TestCase, TestResult, UiStep
@@ -59,6 +60,18 @@ async def _capture_screenshot(page, session_id: str, tc_id: str) -> str | None:
     return str(path)
 
 
+async def _capture_screenshot_b64(page) -> str | None:
+    """Captura en memoria (base64, nunca a disco) para que el front la muestre en vivo,
+    tanto en un test que pasa como en uno que falla — a diferencia de `_capture_screenshot`,
+    que solo guarda a disco como evidencia de un fallo.
+    """
+    try:
+        screenshot_bytes = await page.screenshot()
+    except Exception:
+        return None
+    return base64.b64encode(screenshot_bytes).decode()
+
+
 async def run_ui(tc: TestCase, session_id: str, browser=None) -> TestResult:
     """Ejecuta los steps de un TestCase tipo "ui" en orden sobre una pagina de Playwright.
 
@@ -87,11 +100,13 @@ async def run_ui(tc: TestCase, session_id: str, browser=None) -> TestResult:
                     status="fail",
                     detail=f"step {index} ({step.action} en {target!r}): {exc}",
                     evidence=evidence,
+                    screenshot_b64=await _capture_screenshot_b64(page),
                 )
         return TestResult(
             test_case_id=tc.id,
             status="pass",
             detail=f"{len(steps)} step(s) ejecutados sin errores",
+            screenshot_b64=await _capture_screenshot_b64(page),
         )
     finally:
         await page.close()

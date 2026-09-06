@@ -92,7 +92,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .results-list { margin-top: 16px; border-top: 1px solid #303443; }
 .result-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid #303443; color: #d5d2dd; }
 .result-item strong { font-size: 13px; }
+.result-body { width: 100%; }
 .result-item p { margin: 4px 0 0; color: #aaa7b3; font-size: 12px; }
+.result-screenshot { width: 100%; max-height: 220px; object-fit: cover; object-position: top; margin-top: 10px; border-radius: 8px; border: 1px solid #303443; }
 .result-status { min-width: 56px; padding: 4px 7px; border-radius: 6px; font-size: 10px; font-weight: 700; text-align: center; text-transform: uppercase; }
 .result-status.pass { background: #23452e; color: #9de0a8; }
 .result-status.fail { background: #4d272d; color: #f3a9b5; }

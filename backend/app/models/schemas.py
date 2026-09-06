@@ -127,6 +127,10 @@ class TestResult(BaseModel):
     status: Literal["pass", "fail", "error"]
     detail: str
     evidence: str | None = None
+    # captura en memoria del estado final de la pantalla (solo tests "ui"), para que el front
+    # la muestre en vivo mientras ejecuta. No se persiste en DB (execute.py arma el Result
+    # campo por campo, este no esta entre ellos) — es solo para la corrida en curso.
+    screenshot_b64: str | None = None
 
 
 class ExecutionResponse(BaseModel):

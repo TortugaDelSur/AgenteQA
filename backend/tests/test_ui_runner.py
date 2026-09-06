@@ -1,3 +1,4 @@
+import base64
 import types
 
 import pytest
@@ -32,10 +33,12 @@ class FakePage:
         self.calls.append(("is_visible", selector))
         return selector in self.visible_selectors
 
-    async def screenshot(self, path):
+    async def screenshot(self, path=None):
         self.calls.append(("screenshot", path))
         if self.screenshot_error:
             raise RuntimeError("no se pudo capturar")
+        if path is None:
+            return b"fake-png-bytes"
 
     async def close(self):
         self.closed = True
@@ -124,6 +127,7 @@ async def test_run_ui_all_steps_pass():
     assert result.status == "pass"
     assert "5 step(s)" in result.detail
     assert result.evidence is None
+    assert result.screenshot_b64 == base64.b64encode(b"fake-png-bytes").decode()
     assert page.closed is True
 
 
@@ -147,6 +151,7 @@ async def test_run_ui_stops_at_first_failing_step_and_screenshots(tmp_path, monk
     assert result.status == "fail"
     assert "step 2" in result.detail
     assert result.evidence == str(tmp_path / "sess-2" / "TC-UI.png")
+    assert result.screenshot_b64 == base64.b64encode(b"fake-png-bytes").decode()
     assert ("click", "#nunca") not in page.calls  # corta antes del step 3
     assert (tmp_path / "sess-2").is_dir()
     assert page.closed is True
@@ -161,6 +166,7 @@ async def test_run_ui_evidence_none_when_screenshot_fails(tmp_path, monkeypatch)
 
     assert result.status == "fail"
     assert result.evidence is None
+    assert result.screenshot_b64 is None
 
 
 async def test_capture_screenshot_writes_under_session_dir(tmp_path, monkeypatch):

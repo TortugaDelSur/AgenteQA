@@ -52,9 +52,14 @@ class SweepState(Base):
     pending_question: Mapped[str | None] = mapped_column(default=None)
     pending_question_url: Mapped[str | None] = mapped_column(default=None)
     questions_asked: Mapped[int] = mapped_column(default=0)
-    # true si la pagina actual (pages[next_index]) resulto ser un muro de login no anticipado,
-    # o si las credenciales conocidas fallaron: hace falta credenciales de prueba para reintentar.
+    # true si se topo con un muro de login no anticipado, o si las credenciales conocidas
+    # fallaron: hace falta credenciales de prueba para reintentar.
     login_required: Mapped[bool] = mapped_column(default=False)
+    # URL real donde hay que loguearse (la del login conocido, o donde se detecto el muro).
+    # Se fija una vez y se reusa en cada resume — nunca se recalcula desde next_index, porque
+    # next_index avanza a paginas que no son la de login (bug real: reintentaba el login contra
+    # la pagina siguiente del barrido en vez de la de login de verdad).
+    login_url: Mapped[str | None] = mapped_column(default=None)
 
 
 class Result(Base):

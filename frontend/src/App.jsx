@@ -443,9 +443,16 @@ export default function App() {
                   {results.map((result) => (
                     <div className="result-item" key={`${result.test_case_id}-${result.detail}`}>
                       <span className={`result-status ${result.status}`}>{result.status}</span>
-                      <div>
+                      <div className="result-body">
                         <strong>{result.test_case_id}</strong>
                         <p>{result.detail}</p>
+                        {result.screenshot_b64 && (
+                          <img
+                            className="result-screenshot"
+                            src={`data:image/png;base64,${result.screenshot_b64}`}
+                            alt={`Captura de ${result.test_case_id}`}
+                          />
+                        )}
                       </div>
                     </div>
                   ))}

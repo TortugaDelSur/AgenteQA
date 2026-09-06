@@ -181,6 +181,46 @@ def test_sweep_logs_in_when_credentials_known(client, monkeypatch):
     assert lines[-1]["type"] == "plan_ready"
 
 
+def test_sweep_reuses_the_real_login_url_across_resumes_after_a_question(client, monkeypatch):
+    # bug real: un resume disparado por una pausa de duda (no de login) recalculaba login_url
+    # como "la proxima pagina a visitar" en vez de reusar la pagina de login real, e intentaba
+    # loguearse contra checkboxes (sin form de login) -> fallaba -> pedia credenciales de nuevo.
+    session_id = _new_session(
+        client, monkeypatch, objetivo=True, acceso=True,
+        target_url="https://x.com/login", username="user", password="pass",
+        extra_urls=["https://x.com/secure", "https://x.com/checkboxes"],
+    )
+    html_by_url = {
+        "https://x.com/login": '<input id="a">',
+        "https://x.com/secure": '<input id="b">',
+        "https://x.com/checkboxes": '<input id="c">',
+    }
+    monkeypatch.setattr(plan_router, "_launch_browser", _browser_factory(html_by_url))
+
+    login_calls = []
+
+    async def fake_try_login(page, login_url, username, password):
+        login_calls.append(login_url)
+        return True
+
+    monkeypatch.setattr(plan_router, "try_login", fake_try_login)
+    monkeypatch.setattr(
+        plan_router, "check_page_doubt",
+        lambda history, url, elements: "¿duda?" if url == "https://x.com/secure" else None,
+    )
+    monkeypatch.setattr(plan_router, "generate_plan", lambda history, page_snapshot=None: SAMPLE_TEST_PLAN)
+
+    client.post("/api/plan/sweep", json={"session_id": session_id})  # visita login+secure, pausa por duda
+    client.post("/api/plan/sweep/answer", json={"session_id": session_id, "answer": "ok"})
+
+    resp = client.post("/api/plan/sweep", json={"session_id": session_id})  # resume en checkboxes
+
+    lines = _parse_ndjson(resp.text)
+    assert lines[-1]["type"] == "plan_ready"
+    assert not any(line["type"] == "login_required" for line in lines)
+    assert login_calls == ["https://x.com/login", "https://x.com/login"]
+
+
 def test_sweep_pauses_for_login_when_known_credentials_fail(client, monkeypatch):
     session_id = _new_session(
         client, monkeypatch, objetivo=True, acceso=True,

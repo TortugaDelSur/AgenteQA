@@ -115,16 +115,20 @@ async def _run_sweep(session_id: str, context: ContextProgress, history: list[Ch
     authenticated = False
     try:
         if context.username and context.password:
-            # login_url: la pagina donde se detecto (o se espera) el muro, nunca la que ya se
-            # paso — pages[next_index] no avanza mientras el login este pendiente.
-            login_url = pages[min(state.next_index, len(pages) - 1)]
+            # login_url persistido: la pagina real de login, fijada la primera vez y reusada en
+            # cada resume. Nunca se deriva de next_index (que avanza a paginas que no son la de
+            # login) — cada resume relanza un browser nuevo sin cookies, asi que hay que
+            # reautenticarse siempre, pero contra la pagina correcta.
+            login_url = state.login_url or pages[min(state.next_index, len(pages) - 1)]
             authenticated = await try_login(page, login_url, context.username, context.password)
             if not authenticated:
                 state.login_required = True
+                state.login_url = login_url
                 db.commit()
                 yield {"type": "login_required", "url": login_url}
                 return
             state.login_required = False
+            state.login_url = login_url
             db.commit()
 
         for index in range(state.next_index, len(pages)):
@@ -141,6 +145,7 @@ async def _run_sweep(session_id: str, context: ContextProgress, history: list[Ch
 
             if not authenticated and elements and _looks_like_login(elements):
                 state.login_required = True
+                state.login_url = url
                 db.commit()
                 yield {"type": "login_required", "url": url}
                 return
