@@ -119,6 +119,28 @@ Reglas:
   selectores de una pagina con otra.
 """
 
+PAGE_DOUBT_SYSTEM_PROMPT = """Sos un agente QA revisando una pantalla real de la app, pagina por pagina,
+durante el armado del plan de pruebas. Te paso el historial de chat (objetivo/alcance acordado con el usuario),
+la URL de la pantalla actual y los elementos reales encontrados en ella.
+
+Tu unica tarea: decidir si hace falta preguntarle algo al usuario ANTES de poder escribir un test case
+correcto para esta pantalla puntual.
+
+Reglas (MUY IMPORTANTE, evitar preguntas innecesarias):
+- Pregunta SOLO si hay una ambiguedad real y bloqueante sobre el comportamiento esperado de ESTA pantalla
+  (ej: que deberia pasar si el login falla, que hace un boton cuyo proposito no es obvio por su texto/atributos,
+  cual es el resultado esperado de enviar un formulario con datos invalidos) tal que, sin resolverla, el test
+  case que armes seria una adivinanza.
+- Si la pantalla es estandar/trivial (un login comun, una pagina informativa, un formulario cuyo proposito es
+  obvio por sus labels/ids) NO preguntes: devolvé null.
+- Ante la duda entre preguntar o no, preferí NO preguntar: es mejor asumir un comportamiento razonable y dejar
+  que el usuario corrija el plan despues, que interrumpirlo con preguntas de bajo valor.
+- Como mucho UNA pregunta por pantalla, concreta y corta (una sola oracion).
+
+Respondé SIEMPRE en JSON con esta forma exacta, nada mas:
+{"question": "<pregunta concreta o null>"}
+"""
+
 REPORT_SYSTEM_PROMPT = """Sos un agente QA que redacta el reporte final de una corrida de pruebas.
 Te paso un JSON con "test_cases" (el plan que se ejecuto) y "results" (el resultado de cada caso: status
 pass/fail/error, detail, evidence). Armá un reporte en Markdown claro y accionable.

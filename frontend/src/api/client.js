@@ -38,6 +38,27 @@ export async function generatePlan(sessionId) {
   });
 }
 
+// NDJSON: una linea de evento por vez, procesada a medida que llega, no esperamos al final.
+async function readNdjson(response, onLine) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  const handleLine = (line) => {
+    if (line.trim()) onLine(JSON.parse(line));
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    lines.forEach(handleLine);
+  }
+  if (buffer) handleLine(buffer);
+}
+
 export async function executePlan(sessionId, onProgress) {
   const response = await fetch(`${API_BASE}/execute`, {
     method: 'POST',
@@ -50,30 +71,42 @@ export async function executePlan(sessionId, onProgress) {
     throw new Error(payload?.detail || 'No se pudo ejecutar el plan');
   }
 
-  // NDJSON: una linea de progreso por test case a medida que termina, no esperamos al final.
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
   const results = [];
-  let buffer = '';
-
-  const handleLine = (line) => {
-    if (!line.trim()) return;
-    const progress = JSON.parse(line);
+  await readNdjson(response, (progress) => {
     results.push(progress.result);
     onProgress?.(progress);
-  };
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop();
-    lines.forEach(handleLine);
-  }
-  if (buffer) handleLine(buffer);
+  });
 
   return { session_id: sessionId, results };
+}
+
+export async function sweepPlan(sessionId, onEvent) {
+  const response = await fetch(`${API_BASE}/plan/sweep`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.detail || 'No se pudo generar el plan');
+  }
+
+  await readNdjson(response, onEvent);
+}
+
+export async function answerSweepQuestion(sessionId, answer) {
+  return request('/plan/sweep/answer', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId, answer }),
+  });
+}
+
+export async function submitSweepLogin(sessionId, username, password) {
+  return request('/plan/sweep/login', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId, username, password }),
+  });
 }
 
 export async function downloadReport(sessionId) {

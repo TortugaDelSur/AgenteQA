@@ -148,6 +148,26 @@ def test_generate_plan_includes_page_snapshot_when_given(monkeypatch):
     assert any('<input id="username">' in m["content"] for m in sent_messages)
 
 
+def test_check_page_doubt_returns_none_when_no_question(monkeypatch):
+    fake = FakeClient([json.dumps({"question": None})])
+    monkeypatch.setattr(llm_client, "get_client", lambda: fake)
+
+    question = llm_client.check_page_doubt(HISTORY, "https://x.com/login", '<input id="password">')
+
+    assert question is None
+
+
+def test_check_page_doubt_returns_question_text(monkeypatch):
+    fake = FakeClient([json.dumps({"question": "¿que deberia pasar si el login falla?"})])
+    monkeypatch.setattr(llm_client, "get_client", lambda: fake)
+
+    question = llm_client.check_page_doubt(HISTORY, "https://x.com/login", '<input id="password">')
+
+    assert question == "¿que deberia pasar si el login falla?"
+    sent_messages = fake.chat.completions.last_kwargs["messages"]
+    assert any("https://x.com/login" in m["content"] for m in sent_messages)
+
+
 def test_generate_report_builds_markdown_from_plan_and_results(monkeypatch):
     fake = FakeClient(["# Reporte de QA\n\n- TC-01: fail\n"])
     monkeypatch.setattr(llm_client, "get_client", lambda: fake)

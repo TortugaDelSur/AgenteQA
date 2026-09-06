@@ -5,7 +5,12 @@ from openai import OpenAI
 from pydantic import ValidationError
 
 from app.config import settings
-from app.llm.prompts import CHAT_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT, REPORT_SYSTEM_PROMPT
+from app.llm.prompts import (
+    CHAT_SYSTEM_PROMPT,
+    PAGE_DOUBT_SYSTEM_PROMPT,
+    PLAN_SYSTEM_PROMPT,
+    REPORT_SYSTEM_PROMPT,
+)
 from app.models.schemas import ChatMessage, ContextProgress, TestPlan, TestResult
 
 # temperature baja para que el checklist de contexto y el plan sean lo mas reproducibles posible
@@ -83,6 +88,20 @@ def _parse_test_plan(raw: str) -> TestPlan:
     if not isinstance(data, dict):
         raise TypeError(f"esperaba un objeto JSON, recibio {type(data).__name__}")
     return TestPlan(**data)
+
+
+def check_page_doubt(history: list[ChatMessage], url: str, elements: str) -> str | None:
+    messages = _to_openai_messages(PAGE_DOUBT_SYSTEM_PROMPT, history)
+    messages.append({"role": "user", "content": f"Pantalla: {url}\nElementos encontrados:\n{elements}"})
+
+    response = get_client().chat.completions.create(
+        model=settings.deepseek_model,
+        messages=messages,
+        response_format={"type": "json_object"},
+        temperature=TEMPERATURE,
+    )
+    data = json.loads(response.choices[0].message.content)
+    return data.get("question") or None
 
 
 def generate_report(plan: TestPlan, results: list[TestResult]) -> str:

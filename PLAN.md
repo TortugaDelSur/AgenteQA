@@ -1,151 +1,114 @@
-# AgenteQA — plan de desarrollo (MVP tesis)
+# AgenteQA — mapa del repo
 
-## Contexto
+Agente QA conversacional: charla para juntar contexto, arma un plan de pruebas, lo ejecuta (UI + endpoints) y genera un reporte descargable. Backend FastAPI + SQLite, frontend React/Vite, LLM vía SDK OpenAI apuntando a Groq (`.env`: `DEEPSEEK_BASE_URL`).
 
-Tesis: agente QA conversacional. Usuario chatea para dar contexto (que testear, URL, repo opcional). LLM (DeepSeek) arma plan de pruebas estructurado, el sistema lo ejecuta (UI + endpoints) y genera reporte final con fallos, ubicacion, y pasos de reproduccion.
+## Conversar y juntar contexto {#chat}
 
-Repo `AgenteQA` esta vacio, arrancamos desde cero.
+- [x] Chat guiado que junta 4 nodos (objetivo, acceso, alcance, repo) antes de habilitar el plan
+      tech: routers/chat.py::post_chat, llm/prompts.py::CHAT_SYSTEM_PROMPT, models/schemas.py::ContextProgress
+- [x] Contrasta lo que dice el usuario contra la pagina real en cada turno (inspeccion estatica, sin login)
+      tech: chat.py (llama `inspect_page`), llm/page_inspector.py::inspect_page
+- [x] Sugiere paginas reales encontradas en la navegacion en vez de que el usuario tipee URLs a mano
+      tech: llm/prompts.py::CHAT_SYSTEM_PROMPT (bloque "Sugerencia de paginas")
+- [x] Filtro duro de `extra_urls` (mismo dominio, cap 8) — no depende de que el LLM se porte bien
+      tech: models/schemas.py::ContextProgress._sanitize_extra_urls
 
-Decisiones ya tomadas con el usuario:
-- Stack: **Python (FastAPI) + React**
-- LLM: **DeepSeek** (API compatible con formato OpenAI), usado tanto para conversacion como para generar plan y reporte
-- MVP: **UI + Endpoints** (analisis de repo queda como fase futura, no bloquea diseño pero no se implementa ahora)
-- Entrega: documento **Markdown/HTML descargable**
+files: [backend/app/routers/chat.py, backend/app/llm/prompts.py, backend/app/models/schemas.py]
 
-## Arquitectura
+## Armar el plan de pruebas, con barrido de pantallas {#plan}
 
-```
-AgenteQA/
-  backend/
-    app/
-      main.py                 # FastAPI app + CORS + routers
-      config.py                # pydantic Settings: DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DB_PATH
-      llm/
-        client.py              # wrapper OpenAI SDK apuntando a base_url de DeepSeek
-        prompts.py              # system prompts: conversacion, generar_plan, generar_reporte
-      models/
-        schemas.py              # Pydantic: ChatMessage, TestCase, TestPlan, TestResult, Report
-        db.py                    # SQLite + SQLAlchemy: Session, Message, Plan, Result (persistencia simple)
-      routers/
-        chat.py                  # POST /api/chat -> conversacion con DeepSeek, guarda historial
-        plan.py                  # POST /api/plan  -> genera TestPlan estructurado desde historial
-        execute.py               # POST /api/execute -> corre TestPlan, guarda resultados
-        report.py                # GET  /api/report/{session_id} -> genera y descarga .md/.html
-      execution/
-        endpoint_runner.py       # httpx: ejecuta test cases tipo "endpoint"
-        ui_runner.py              # Playwright: ejecuta test cases tipo "ui" (DSL de acciones)
-        runner.py                 # dispatch por tipo, agrega resultados + screenshots en fallos
-    requirements.txt
-    tests/
-      test_endpoint_runner.py    # check minimo: mock server, verifica pass/fail se detecta bien
-      test_ui_runner.py          # check minimo: dispatch de acciones conocido/desconocido
-  frontend/
-    (Vite + React + TS)
-    src/
-      api/client.ts              # fetch wrapper a backend
-      components/
-        ChatPanel.tsx             # chat de contexto
-        PlanView.tsx               # muestra plan generado, boton "Ejecutar"
-        ResultsView.tsx            # resultados en vivo (pass/fail por caso)
-        ReportDownload.tsx         # boton descarga reporte final
-      App.tsx                      # orquesta los 4 pasos: chat -> plan -> ejecutar -> reporte
-  README.md
-```
+needs: [chat]
+links: [data]
 
-## Flujo end-to-end
+- [x] Genera `TestPlan` estructurado (JSON validado con Pydantic, 1 reintento si el LLM devuelve algo invalido)
+      tech: routers/plan.py::post_plan, llm/client.py::generate_plan
+- [x] Inspecciona la pagina real (estatico o con login via Playwright) antes de generar el plan (endpoint bloqueante original, sigue vivo)
+      tech: routers/plan.py::_build_page_snapshot, llm/authenticated_inspector.py::inspect_with_login
+- [x] Barrido de pantallas en vivo: navega target_url + extra_urls, captura screenshot + elementos por pagina, streamea NDJSON al frontend
+      tech: routers/plan.py::post_plan_sweep, _run_sweep, llm/screen_sweeper.py::capture_page
+      by: claude
+- [x] Pausa dura si el agente tiene una duda real sobre el comportamiento de una pantalla, retoma tras la respuesta del usuario sin re-visitarla
+      tech: routers/plan.py::post_plan_sweep_answer, llm/client.py::check_page_doubt, models/db.py::SweepState
+      by: claude
+- [x] Pausa dura si se topa con un muro de login no anticipado (o credenciales ya conocidas que fallan), pide credenciales de prueba y retoma sin revisitar lo ya andado
+      tech: routers/plan.py::post_plan_sweep_login, _looks_like_login, models/schemas.py::SweepLoginRequest
+      by: claude
+- [ ] Analisis/testing directo del repositorio de codigo (clonar, correr tests existentes)
+      from: roadmap
 
-1. **Chat** (`ChatPanel` -> `POST /api/chat`): usuario describe que testear, URL, endpoints conocidos, repo (opcional, no se usa aun). Backend mantiene historial por `session_id` (generado al primer mensaje, guardado en SQLite). DeepSeek responde y guia la conversacion hasta tener contexto suficiente (prompt de sistema en `prompts.py` instruye al LLM a preguntar por URL, tipo de app, credenciales de prueba si aplica, endpoints clave).
+files: [backend/app/routers/plan.py, backend/app/llm/screen_sweeper.py, backend/app/llm/page_inspector.py, backend/app/llm/authenticated_inspector.py]
 
-2. **Generar plan** (boton en front -> `POST /api/plan`): se envia el historial completo a DeepSeek con un prompt que exige salida JSON con schema fijo:
-   ```json
-   {
-     "test_cases": [
-       {
-         "id": "TC-01",
-         "type": "ui",
-         "title": "...",
-         "steps": [
-           {"action": "goto", "url": "..."},
-           {"action": "click", "selector": "..."},
-           {"action": "fill", "selector": "...", "value": "..."},
-           {"action": "assert_text", "selector": "...", "expected": "..."},
-           {"action": "assert_visible", "selector": "..."}
-         ]
-       },
-       {
-         "id": "TC-02",
-         "type": "endpoint",
-         "title": "...",
-         "request": {"method": "GET", "url": "...", "headers": {}, "body": null},
-         "expected_status": 200,
-         "expected_body_contains": "..."
-       }
-     ]
-   }
-   ```
-   Se valida con Pydantic (`TestPlan`/`TestCase`). Si el LLM devuelve JSON invalido, un solo reintento con el error como feedback (sin loop infinito).
+## Ejecutar el plan {#execution}
 
-3. **Ejecutar** (`POST /api/execute`): `runner.py` itera `test_cases`:
-   - `type == "endpoint"` -> `endpoint_runner.py` con `httpx.AsyncClient`, compara status/body, guarda request/response.
-   - `type == "ui"` -> `ui_runner.py` con Playwright (`async_playwright`, chromium headless). Dispatch de acciones limitado a un set fijo (`goto`, `click`, `fill`, `assert_text`, `assert_visible`) via diccionario accion->funcion. En fallo, captura screenshot y guarda referencia.
-   - Resultados (`TestResult`: id, status pass/fail, detalle, evidencia) se guardan en SQLite asociados al `session_id`.
+needs: [plan]
+links: [data]
 
-4. **Reporte** (`GET /api/report/{session_id}`): se envian `TestPlan` + `TestResult[]` a DeepSeek con prompt que arma Markdown: por cada fallo, seccion con ubicacion (endpoint o selector/pagina), descripcion del fallo, evidencia (respuesta HTTP o screenshot), y pasos de reproduccion numerados. Se devuelve el `.md` (y opcionalmente conversion simple a `.html` con `markdown` lib) para descarga directa desde el front.
+- [x] Corre casos `endpoint` con httpx.AsyncClient, compara status/body
+      tech: execution/endpoint_runner.py
+- [x] Corre casos `ui` con Playwright headless (DSL fijo de 5 acciones), screenshot a disco en el primer step que falla
+      tech: execution/ui_runner.py::_capture_screenshot
+- [x] Progreso en vivo por streaming NDJSON (una linea por test case a medida que termina)
+      tech: routers/execute.py::_execute_and_stream
+- [x] Bloqueo duro de dominio: un test case que apunte fuera del dominio confirmado no se ejecuta, aunque el prompt del plan lo hubiera dejado pasar
+      tech: routers/execute.py::_blocked_domain
 
-## Puntos tecnicos clave
+files: [backend/app/execution/, backend/app/routers/execute.py]
 
-- **DeepSeek**: `openai` SDK oficial, `base_url="https://api.deepseek.com"`, modelo `deepseek-chat`. Un solo wrapper (`llm/client.py`) con 3 funciones: `chat(history)`, `generate_plan(history)`, `generate_report(plan, results)`. Reutilizar el mismo client para las 3, evita duplicar boilerplate.
-- **DSL de acciones UI**: fijo y pequeño a proposito (5 acciones) para que sea ejecutable sin ambiguedad. Ampliar solo si el uso real lo pide.
-- **Persistencia**: SQLite + SQLAlchemy, un archivo `.db` local. Sin Docker ni Postgres para el MVP — evita complejidad de infra que la tesis no necesita.
-- **Sin autenticacion** en el MVP (uso personal/demo). Si se despliega publico despues, se agrega.
-- **Repo access**: queda fuera del MVP. El schema de `TestCase.type` es extensible (`"repo"` a futuro) sin romper lo existente.
+## Generar el reporte {#report}
 
-## Division de trabajo (3 personas en paralelo)
+needs: [execution]
 
-Contrato compartido primero (1 persona lo define en 30 min, o se acuerda en grupo antes de arrancar), para que las 3 partes se integren sin bloquearse:
-- `backend/app/models/schemas.py`: `ChatMessage`, `TestCase`, `TestPlan`, `TestResult`, `Report` (Pydantic).
-- Rutas y contratos HTTP: `POST /api/chat`, `POST /api/plan`, `POST /api/execute`, `GET /api/report/{session_id}` (paths, request/response shape ya descritos arriba en "Flujo end-to-end").
-- El schema JSON del `TestPlan` (seccion "Generar plan" arriba) es el contrato entre LLM/backend y el runner de ejecucion — no cambia sin avisar a las otras 2 personas.
+- [x] Arma reporte Markdown con fallos, ubicacion, evidencia y pasos de reproduccion
+      tech: llm/client.py::generate_report, llm/prompts.py::REPORT_SYSTEM_PROMPT
+- [x] Exporta tambien en HTML (`?format=html`, tabla de resultados)
+      tech: routers/report.py (param `format`, lib `markdown`)
 
-Con eso fijado, cada persona puede mockear lo que las otras 2 todavia no entregaron.
+files: [backend/app/routers/report.py]
 
-### Persona A — LLM + Conversacion + Plan
-Archivos: `backend/app/llm/client.py`, `backend/app/llm/prompts.py`, `backend/app/routers/chat.py`, `backend/app/routers/plan.py`, `backend/app/models/db.py` (setup inicial SQLite/SQLAlchemy), `backend/app/config.py`.
-- Wrapper DeepSeek (`chat()`, `generate_plan()`, `generate_report()` — implementa las primeras dos, deja `generate_report()` con firma lista para Persona B).
-- Prompts de sistema: conversacion guiada + prompt que fuerza salida JSON del `TestPlan` con el schema fijo.
-- Endpoints `/api/chat` y `/api/plan`, con historial persistido en SQLite por `session_id`.
-- Validacion Pydantic del JSON que devuelve el LLM + 1 reintento si es invalido.
-- Mock necesario: ninguno externo, es la base. Expone `TestPlan` de ejemplo (fixture) para que Persona B pruebe su runner sin depender del LLM real.
+## Datos y contrato compartido {#data}
 
-### Persona B — Motor de ejecucion + Reporte
-Archivos: `backend/app/execution/endpoint_runner.py`, `backend/app/execution/ui_runner.py`, `backend/app/execution/runner.py`, `backend/app/routers/execute.py`, `backend/app/routers/report.py`, `backend/app/llm/client.py::generate_report()` (completa la firma que dejo Persona A).
-- `endpoint_runner.py`: ejecuta `TestCase` tipo `endpoint` con `httpx.AsyncClient`.
-- `ui_runner.py`: Playwright headless, dispatch fijo de 5 acciones (`goto`, `click`, `fill`, `assert_text`, `assert_visible`), screenshot en fallo.
-- `runner.py`: orquesta por tipo, guarda `TestResult[]` en SQLite.
-- `/api/execute` y `/api/report/{session_id}` (arma Markdown/HTML via `generate_report`).
-- Mientras Persona A no tenga `/api/plan` listo: trabajar contra el `TestPlan` de ejemplo fijado en el contrato (JSON de la seccion "Generar plan"), no contra el endpoint real.
-- Tests minimos: `test_endpoint_runner.py`, `test_ui_runner.py`.
+links: [chat, plan, execution]
 
-### Persona C — Frontend completo
-Archivos: `frontend/` completo (`api/client.ts`, `components/ChatPanel.tsx`, `PlanView.tsx`, `ResultsView.tsx`, `ReportDownload.tsx`, `App.tsx`).
-- Los 4 pasos del flujo (chat -> plan -> ejecutar -> reporte) como estados de `App.tsx`.
-- `api/client.ts` contra los 4 endpoints del contrato — mientras el backend no este listo, mockear las respuestas con los JSON de ejemplo del contrato (`TestPlan`, `TestResult[]`, reporte markdown de muestra) para poder maquetar y probar la UI en paralelo.
-- Integracion real con backend al final, cuando A y B ya tengan sus endpoints andando.
+- [x] Persistencia SQLite: sesiones, historial de mensajes, planes, resultados
+      tech: models/db.py (Session, Message, Plan, Result)
+- [x] Estado de barrido persistido por sesion, permite pausar/resumir entre requests HTTP sin WebSocket
+      tech: models/db.py::SweepState
+      by: claude
+- [x] Validacion de `TestCase.id` contra path traversal (se usa para nombrar el screenshot en disco)
+      tech: models/schemas.py::TestCase (Field pattern)
+- [x] Migracion liviana automatica: agrega columnas nuevas a tablas SQLite existentes al arrancar (create_all nunca altera tablas ya creadas)
+      tech: models/db.py::_add_missing_columns, init_db
+      by: claude
+- [ ] Autenticacion multi-usuario
+      from: roadmap
 
-### Orden sugerido
-1. Dia 1: las 3 personas acuerdan el contrato (schemas + shape de endpoints), cada una arranca con mocks del resto.
-2. Persona A entrega `/api/chat` + `/api/plan` reales -> Persona B deja de usar el `TestPlan` de ejemplo y prueba con el real.
-3. Persona B entrega `/api/execute` + `/api/report` reales -> Persona C conecta el front real, deja de mockear.
-4. Integracion final conjunta + prueba end-to-end contra una app de prueba real.
+files: [backend/app/models/db.py, backend/app/models/schemas.py]
 
-## Verificacion
+## Frontend: chat, plan, ejecucion y reporte en una sola vista {#frontend}
 
-- Backend: `pytest backend/tests` corre los 2 checks minimos (dispatch de acciones UI, deteccion pass/fail en endpoint runner con mock).
-- Manual end-to-end: levantar `uvicorn app.main:app --reload`, levantar `npm run dev` en frontend, probar contra una URL/API real (ej. una app de prueba propia) y confirmar que el reporte final descargado tiene fallos con pasos de reproduccion coherentes.
-- Confirmar que `DEEPSEEK_API_KEY` se lee de `.env` (no hardcodeada) y que `.env` esta en `.gitignore`.
+needs: [chat, plan, execution, report]
 
-## Fuera de alcance (fase 2, no ahora)
+- [x] Chat con stepper de progreso de los 4 nodos, dispara el plan solo cuando `ready_for_plan` es real
+      tech: App.jsx::QaStepper, handleSendMessage
+- [x] Panel de barrido en vivo: capturas + resumen por pantalla, input de respuesta cuando hay una pregunta pendiente
+      tech: App.jsx::SweepPanel, api/client.js::sweepPlan/answerSweepQuestion
+      by: claude
+- [x] Ejecucion con progreso en vivo ("Ejecutando prueba X de Y...")
+      tech: api/client.js::executePlan, App.jsx::handleExecutePlan
+- [x] Descarga de reporte (Markdown/HTML)
+      tech: api/client.js::downloadReport
+- [x] Recupera el historial de chat al refrescar (via `session_id` en localStorage)
+      tech: App.jsx (useEffect inicial + getChatHistory)
+- [ ] Recuperar plan/resultados al refrescar (hoy solo se recupera el historial de chat; no hay endpoint para pedir el ultimo plan sin regenerarlo)
+      from: roadmap
+- [ ] Dashboard visual de resultados mas alla de una lista simple pass/fail
+      from: roadmap
 
-- Analisis/testing directo del repositorio (clonar, correr tests existentes, static analysis).
-- Autenticacion multi-usuario.
-- Dashboard visual de resultados mas alla de lista simple pass/fail.
+files: [frontend/src/App.jsx, frontend/src/api/client.js, frontend/src/styles.css]
+
+## decisions
+
+- Backfill inicial de este PLAN.md (reemplaza el plan de diseño original de la tesis, movido a `AgenteQA/00-Plan-General.md` como referencia historica — no se borro, solo dejo de ser la fuente de verdad de estado).
+- 6 componentes elegidos: `chat`/`plan`/`execution`/`report` siguen el pipeline de 4 pasos del producto; `data` se separó porque es un contrato compartido activo (creció con `SweepState` esta misma sesión, no es plumbing estable); `frontend` es un solo componente porque hoy es un unico archivo (`App.jsx`) sin sub-partes independientes.
+- Los 3 items "fuera de alcance fase 2" del plan de diseño original (analisis de repo, auth multi-usuario, dashboard visual) se migraron como tareas `from: roadmap` en el componente que mas de cerca les corresponde, en vez de quedar en una lista aparte.
+- Todo lo marcado `[x]` se verifico contra el codigo actual (no contra la Bitacora ni el README) durante esta sesion; ningun estado se tomo prestado de la prosa sin confirmar la funcion/archivo citado en `tech:`.

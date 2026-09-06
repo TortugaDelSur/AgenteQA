@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { downloadReport, executePlan, generatePlan, getChatHistory, sendChat } from './api/client';
+import {
+  answerSweepQuestion, downloadReport, executePlan, getChatHistory, sendChat, submitSweepLogin, sweepPlan,
+} from './api/client';
 
 const welcomeMessage = {
   role: 'assistant',
@@ -53,6 +55,85 @@ function QaStepper({ context, hasPlan }) {
   );
 }
 
+function SweepPanel({ events, question, onAnswer, loginRequired, onSubmitLogin, isLoading }) {
+  const [answer, setAnswer] = useState('');
+  const [loginUser, setLoginUser] = useState('');
+  const [loginPass, setLoginPass] = useState('');
+  if (!events.length && !question && !loginRequired) return null;
+
+  return (
+    <section className="sweep-panel">
+      <span className="eyebrow">Barrido de pantallas</span>
+      {events.map((event, index) => (
+        <div className="sweep-event" key={index}>
+          {event.type === 'error' ? (
+            <p className="sweep-error">{event.url}: {event.detail}</p>
+          ) : event.type === 'page_result' ? (
+            <>
+              <p>{event.url} — {event.summary}</p>
+              {event.screenshot_b64 && (
+                <img src={`data:image/png;base64,${event.screenshot_b64}`} alt={event.url} />
+              )}
+            </>
+          ) : (
+            <p className="sweep-visiting">Visitando {event.url}...</p>
+          )}
+        </div>
+      ))}
+      {question && (
+        <div className="sweep-question">
+          <p><strong>{question.url}</strong>: {question.question}</p>
+          <textarea
+            value={answer}
+            onChange={(event) => setAnswer(event.target.value)}
+            rows={2}
+            placeholder="Tu respuesta..."
+          />
+          <button
+            disabled={!answer.trim() || isLoading}
+            onClick={() => {
+              onAnswer(answer);
+              setAnswer('');
+            }}
+          >
+            Responder
+          </button>
+        </div>
+      )}
+      {loginRequired && (
+        <div className="sweep-login">
+          <p>
+            <strong>{loginRequired.url}</strong> pide iniciar sesión y no estaba definido antes.
+            Ingresá credenciales de prueba (no reales) para continuar.
+          </p>
+          <input
+            type="text"
+            value={loginUser}
+            onChange={(event) => setLoginUser(event.target.value)}
+            placeholder="Usuario de prueba"
+          />
+          <input
+            type="password"
+            value={loginPass}
+            onChange={(event) => setLoginPass(event.target.value)}
+            placeholder="Contraseña de prueba"
+          />
+          <button
+            disabled={!loginUser.trim() || !loginPass.trim() || isLoading}
+            onClick={() => {
+              onSubmitLogin(loginUser, loginPass);
+              setLoginUser('');
+              setLoginPass('');
+            }}
+          >
+            Iniciar sesión y continuar
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function App() {
   const [sessionId, setSessionId] = useState('');
   const [messages, setMessages] = useState([welcomeMessage]);
@@ -70,6 +151,9 @@ export default function App() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [sweepEvents, setSweepEvents] = useState([]);
+  const [sweepQuestion, setSweepQuestion] = useState(null);
+  const [sweepLoginRequired, setSweepLoginRequired] = useState(null);
   const chatScrollRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -120,6 +204,9 @@ export default function App() {
     setReport(null);
     setContext({ objetivo: false, acceso: false, alcance: false, repo: false, target_url: null });
     setError('');
+    setSweepEvents([]);
+    setSweepQuestion(null);
+    setSweepLoginRequired(null);
     try {
       localStorage.removeItem(SESSION_STORAGE_KEY);
     } catch {
@@ -136,18 +223,54 @@ export default function App() {
     textarea.style.overflowY = textarea.scrollHeight > 200 ? 'auto' : 'hidden';
   };
 
-  const runGeneratePlan = async (id) => {
+  const runSweepPlan = async (id) => {
     setIsLoading(true);
     setError('');
 
     try {
-      const data = await generatePlan(id);
-      setPlan(data);
-      appendMessage('assistant', `Plan generado: ${data.test_cases.length} casos de prueba.`);
+      await sweepPlan(id, (event) => {
+        if (event.type === 'question') {
+          setSweepQuestion({ url: event.url, question: event.question });
+        } else if (event.type === 'login_required') {
+          setSweepLoginRequired({ url: event.url });
+        } else if (event.type === 'plan_ready') {
+          setPlan(event.plan);
+          appendMessage('assistant', `Plan generado: ${event.plan.test_cases.length} casos de prueba.`);
+        } else {
+          setSweepEvents((current) => [...current, event]);
+        }
+      });
     } catch (err) {
       setError(err.message || 'No se pudo generar el plan');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSubmitSweepLogin = async (username, password) => {
+    if (!sessionId || !sweepLoginRequired) return;
+
+    setError('');
+    try {
+      await submitSweepLogin(sessionId, username, password);
+      setSweepLoginRequired(null);
+      await runSweepPlan(sessionId);
+    } catch (err) {
+      setError(err.message || 'No se pudo iniciar sesion');
+    }
+  };
+
+  const handleAnswerSweepQuestion = async (answerText) => {
+    if (!sessionId || !sweepQuestion) return;
+
+    setError('');
+    try {
+      await answerSweepQuestion(sessionId, answerText);
+      appendMessage('user', answerText);
+      setSweepQuestion(null);
+      await runSweepPlan(sessionId);
+    } catch (err) {
+      setError(err.message || 'No se pudo enviar la respuesta');
     }
   };
 
@@ -223,7 +346,7 @@ export default function App() {
       // sin esperar que el usuario aprete un boton.
       if (data.ready_for_plan && !plan) {
         setIsLoading(false);
-        await runGeneratePlan(data.session_id);
+        await runSweepPlan(data.session_id);
         return;
       }
     } catch (err) {
@@ -269,6 +392,15 @@ export default function App() {
             </div>
 
             {error && <div className="error-message">{error}</div>}
+
+            <SweepPanel
+              events={sweepEvents}
+              question={sweepQuestion}
+              onAnswer={handleAnswerSweepQuestion}
+              loginRequired={sweepLoginRequired}
+              onSubmitLogin={handleSubmitSweepLogin}
+              isLoading={isLoading}
+            />
 
             {plan && (
               <section className="plan-card">

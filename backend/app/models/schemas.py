@@ -109,6 +109,17 @@ class PlanRequest(BaseModel):
     session_id: str
 
 
+class SweepAnswerRequest(BaseModel):
+    session_id: str
+    answer: str = Field(min_length=1, max_length=4000)
+
+
+class SweepLoginRequest(BaseModel):
+    session_id: str
+    username: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=1, max_length=200)
+
+
 # --- Resultados de ejecucion (contrato compartido con Persona B) ---
 
 class TestResult(BaseModel):
