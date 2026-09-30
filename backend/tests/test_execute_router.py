@@ -344,3 +344,23 @@ def test_live_publish_drops_messages_for_slow_clients():
         assert queue.qsize() == 1
     finally:
         live._subscribers.pop("s-slow")
+
+
+def test_ws_notices_client_leaving_even_without_messages(client):
+    # bug real en la e2e: sin mensajes para la sesion, el WS quedaba colgado en queue.get() y la
+    # sesion seguia "mirada" aunque la pagina se cerrara, asi que el repo levantado nunca se apagaba.
+    import time
+
+    from app import live
+
+    with client.websocket_connect("/ws/live/s-ws") as ws:
+        ws.send_text("lo que mande el cliente se ignora")
+        deadline = time.monotonic() + 2
+        while not live.is_watched("s-ws") and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert live.is_watched("s-ws")
+    deadline = time.monotonic() + 2
+    while live.is_watched("s-ws") and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not live.is_watched("s-ws")
+    assert live.last_seen("s-ws") is not None

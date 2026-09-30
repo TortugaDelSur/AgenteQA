@@ -191,7 +191,7 @@ def test_sweep_reuses_the_real_login_url_across_resumes_after_a_question(client,
         extra_urls=["https://x.com/secure", "https://x.com/checkboxes"],
     )
     html_by_url = {
-        "https://x.com/login": '<input id="a">',
+        "https://x.com/login": '<input id="a"><input type="password" id="p">',
         "https://x.com/secure": '<input id="b">',
         "https://x.com/checkboxes": '<input id="c">',
     }
@@ -228,13 +228,16 @@ def test_sweep_pauses_for_login_when_known_credentials_fail(client, monkeypatch)
     )
     monkeypatch.setattr(
         plan_router, "_launch_browser",
-        _browser_factory({"https://x.com/login": '<input id="dashboard">'}, fail_selector='input[type="password"]'),
+        _browser_factory(
+            {"https://x.com/login": '<input id="u"><input type="password" id="p">'},
+            fail_selector='input[type="password"]',
+        ),
     )
 
     resp = client.post("/api/plan/sweep", json={"session_id": session_id})
 
     lines = _parse_ndjson(resp.text)
-    assert lines == [{"type": "login_required", "url": "https://x.com/login"}]
+    assert lines[-1] == {"type": "login_required", "url": "https://x.com/login"}
 
     # pausado: un segundo intento directo (sin pasar por /sweep/login) es 409.
     conflict = client.post("/api/plan/sweep", json={"session_id": session_id})
@@ -318,3 +321,34 @@ def test_sweep_resumes_after_login_and_continues_without_revisiting_wall(client,
     visited_urls = [call[1] for call in second_page.calls if call[0] == "goto"]
     assert "https://x.com" not in visited_urls
     assert "https://x.com/admin" in visited_urls
+
+
+def test_sweep_with_credentials_does_not_try_to_log_in_on_a_home_without_login_form(client, monkeypatch):
+    # bug real en la e2e: con credenciales, intentaba loguearse en target_url (la home, sin form),
+    # fallaba y pedia credenciales en bucle. Ahora se loguea recien donde aparece el password.
+    session_id = _new_session(
+        client, monkeypatch, objetivo=True, acceso=True,
+        target_url="https://x.com", username="demo", password="demo123",
+        extra_urls=["https://x.com/login", "https://x.com/dashboard"],
+    )
+    html_by_url = {
+        "https://x.com": '<a href="/login">Ingresar</a><input id="buscar">',
+        "https://x.com/login": '<input id="username"><input type="password" id="password">',
+        "https://x.com/dashboard": '<input id="filtro">',
+    }
+    monkeypatch.setattr(plan_router, "_launch_browser", _browser_factory(html_by_url))
+    login_calls = []
+
+    async def fake_try_login(page, login_url, username, password):
+        login_calls.append(login_url)
+        return True
+
+    monkeypatch.setattr(plan_router, "try_login", fake_try_login)
+    monkeypatch.setattr(plan_router, "check_page_doubt", lambda history, url, elements: None)
+    monkeypatch.setattr(plan_router, "generate_plan", lambda history, page_snapshot=None: SAMPLE_TEST_PLAN)
+
+    lines = _parse_ndjson(client.post("/api/plan/sweep", json={"session_id": session_id}).text)
+
+    assert not any(line["type"] == "login_required" for line in lines)
+    assert lines[-1]["type"] == "plan_ready"
+    assert login_calls == ["https://x.com/login"]

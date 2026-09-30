@@ -1,6 +1,6 @@
 import asyncio
 import json
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse
 
 import httpx
 
@@ -54,24 +54,6 @@ def _blocked_domain(tc: TestCase, allowed_host: str) -> str | None:
     return None
 
 
-def _rebase_plan(plan: TestPlan, old_host: str, app_url: str) -> TestPlan:
-    """Muda las URLs del plan que apuntaban a `old_host` a la app relevantada (el puerto cambia)."""
-    new = urlparse(app_url)
-
-    def move(url: str) -> str:
-        parsed = urlparse(url)
-        return urlunparse(parsed._replace(scheme=new.scheme, netloc=new.netloc)) if parsed.netloc == old_host else url
-
-    data = plan.model_copy(deep=True)
-    for tc in data.test_cases:
-        if tc.request:
-            tc.request.url = move(tc.request.url)
-        for step in tc.steps or []:
-            if step.url:
-                step.url = move(step.url)
-    return data
-
-
 async def _ensure_app(
     session_id: str, plan: TestPlan, plan_id: int, context: ContextProgress, db: OrmSession,
 ) -> tuple[TestPlan, ContextProgress, str | None]:
@@ -93,7 +75,7 @@ async def _ensure_app(
     old_host = urlparse(context.target_url).netloc if context.target_url else ""
     context = _point_to_app(session_id, context, app_url, db)
     if old_host:
-        plan = _rebase_plan(plan, old_host, app_url)
+        plan = launch.rebase_plan(plan, app_url, only_host=old_host)
         db.get(Plan, plan_id).plan_json = plan.model_dump_json()
         db.commit()
     return plan, context, None

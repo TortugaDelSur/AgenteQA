@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// BACKEND_PORT: el 8000 puede estar ocupado por otro servicio local.
+const backend = `localhost:${process.env.BACKEND_PORT || 8000}`
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -8,11 +11,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: `http://${backend}`,
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:8000',
+        target: `ws://${backend}`,
         ws: true,
       },
     },

@@ -159,12 +159,12 @@ async def _run_sweep(session_id: str, context: ContextProgress, history: list[Ch
     page = await browser.new_page()
     authenticated = False
     try:
-        if context.username and context.password:
-            # login_url persistido: la pagina real de login, fijada la primera vez y reusada en
-            # cada resume. Nunca se deriva de next_index (que avanza a paginas que no son la de
-            # login) — cada resume relanza un browser nuevo sin cookies, asi que hay que
-            # reautenticarse siempre, pero contra la pagina correcta.
-            login_url = state.login_url or pages[min(state.next_index, len(pages) - 1)]
+        if context.username and context.password and state.login_url:
+            # login_url persistido: la pagina real de login, fijada cuando se encontro y reusada en
+            # cada resume (cada resume relanza un browser nuevo sin cookies). Si todavia no se
+            # encontro ninguna pagina con password, no se intenta: la home no suele ser el login
+            # (bug real en la e2e: probaba loguearse en la home y pedia credenciales en bucle).
+            login_url = state.login_url
             authenticated = await try_login(page, login_url, context.username, context.password)
             if not authenticated:
                 state.login_required = True
@@ -189,11 +189,15 @@ async def _run_sweep(session_id: str, context: ContextProgress, history: list[Ch
                 continue
 
             if not authenticated and elements and _looks_like_login(elements):
-                state.login_required = True
+                if context.username and context.password:
+                    authenticated = await try_login(page, url, context.username, context.password)
                 state.login_url = url
+                if not authenticated:
+                    state.login_required = True
+                    db.commit()
+                    yield {"type": "login_required", "url": url}
+                    return
                 db.commit()
-                yield {"type": "login_required", "url": url}
-                return
 
             if elements:
                 visited[url] = elements
@@ -224,6 +228,8 @@ async def _run_sweep(session_id: str, context: ContextProgress, history: list[Ch
 
     page_snapshot = format_snapshots(visited) if visited else None
     plan = generate_plan(history, page_snapshot=page_snapshot)
+    if app_url:
+        plan = launch.rebase_plan(plan, app_url)
     db.add(Plan(session_id=session_id, plan_json=plan.model_dump_json()))
     db.delete(state)
     db.commit()

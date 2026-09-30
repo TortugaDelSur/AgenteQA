@@ -35,18 +35,33 @@ def publish(session_id: str, message: dict) -> None:
             pass
 
 
+async def _send_loop(websocket: WebSocket, queue: asyncio.Queue) -> None:
+    while True:
+        await websocket.send_json(await queue.get())
+
+
+async def _until_disconnect(websocket: WebSocket) -> None:
+    """Lee solo para enterarse de que el cliente se fue; lo que mande se descarta (solo lectura).
+    Sin esto, una sesion sin mensajes queda colgada en queue.get() para siempre y sigue contando
+    como "mirada" aunque la pagina se haya cerrado (bug real en la e2e: el repo nunca se apagaba)."""
+    while (await websocket.receive())["type"] != "websocket.disconnect":
+        pass
+
+
 @router.websocket("/ws/live/{session_id}")
 async def ws_live(websocket: WebSocket, session_id: str) -> None:
-    # solo lectura: nunca se hace receive(); lo que mande el cliente se ignora.
     queue: asyncio.Queue = asyncio.Queue(maxsize=QUEUE_SIZE)
     _subscribers[session_id].add(queue)
+    tasks: list[asyncio.Task] = []
     try:
         await websocket.accept()
-        while True:
-            await websocket.send_json(await queue.get())
+        tasks = [asyncio.create_task(_send_loop(websocket, queue)), asyncio.create_task(_until_disconnect(websocket))]
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     except Exception:  # cliente se fue (WebSocketDisconnect, socket cerrado, etc)
         pass
     finally:
+        for task in tasks:
+            task.cancel()
         _last_seen[session_id] = time.monotonic()
         _subscribers[session_id].discard(queue)
         if not _subscribers[session_id]:

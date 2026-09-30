@@ -48,6 +48,9 @@ files: [backend/app/routers/plan.py, backend/app/llm/screen_sweeper.py, backend/
 needs: [plan]
 links: [data]
 
+- [x] Con credenciales, loguearse recien en la pagina que tiene el campo password, no en la home (antes pedia credenciales en bucle)
+      tech: routers/plan.py::_run_sweep (try_login al detectar _looks_like_login; login_url solo si ya se encontro)
+      by: claude
 - [x] Corre casos `endpoint` con httpx.AsyncClient, compara status/body
       tech: execution/endpoint_runner.py
 - [x] Corre casos `ui` con Playwright headless (DSL fijo de 5 acciones), screenshot a disco en el primer step que falla
@@ -74,6 +77,12 @@ links: [data]
       by: claude
 - [x] Apagar el repo levantado al terminar las pruebas, o si la pagina del agente se cierra o se corta internet; un refresco no lo apaga
       tech: launch.stop al final de _execute; launch.reap_idle (WS sin mirar > 90 s y sin barrido/ejecucion en curso, launch.hold); relevanta solo en _ensure_app y muda el plan al puerto nuevo
+      by: claude
+- [x] Con repo levantado, todas las URLs del plan apuntan a la app local (el LLM las armaba desde lo que dijo el usuario en el chat)
+      tech: launch.rebase_plan tras generate_plan en _run_sweep; en _ensure_app solo el host viejo
+      by: claude
+- [x] La vista en vivo se entera cuando la pagina se cierra aunque no haya mensajes (sin esto el repo nunca se apagaba)
+      tech: live.py::_until_disconnect corre junto al envio; lo que manda el cliente se descarta
       by: claude
 - [x] Tras refrescar la pagina, la pausa pendiente sigue visible y se puede responder
       tech: GET /api/execute/state/{session_id}; LivePanel lo consulta al montarse
@@ -229,3 +238,4 @@ files: [frontend/src/App.jsx, frontend/src/api/client.js, frontend/src/styles.cs
 - Vista en vivo y API sin autenticacion en local (WS por session_id, CORS `*`): aceptado para local, tarea de roadmap antes de la instancia.
 - Pista D (2026-09-30): el repo levantado queda arriba durante toda la sesion y se apaga al olvidar el repo (`DELETE /api/repo/{id}`, cambio de URL) o al cerrar el backend, no al terminar cada ejecucion: el runner publica puertos al azar, y relevantarlo dejaria las URLs del plan apuntando a un puerto viejo. La causa probable se calcula en el momento en que falla cada caso (logs frescos) y se guarda en `Result`; el reporte solo la presenta. El LLM solo puede señalar archivos que existen en el repo; si inventa uno, no se muestra causa.
 - Apagado del repo levantado (2026-09-30, pedido del owner; reemplaza "queda arriba toda la sesion"): se apaga (1) al terminar una ejecucion completa (no al pausar), (2) cuando la pagina del agente se cierra o el usuario pierde internet: nadie mira el WebSocket de la sesion por mas de 90 s y no hay barrido/ejecucion en curso. Un refresco reconecta en segundos, asi que no lo apaga. Si despues se vuelve a barrer o ejecutar, se relevanta solo: se recuerda cual de las URLs era la app (por posicion) y las URLs del plan guardado se mudan al puerto nuevo.
+- E2E real (2026-09-30) contra `github.com/TortugaDelSur/agenteqa-demo` (Flask + compose, bug a proposito en `/api/users/<id>`): chat -> clone -> barrido levanta el repo -> plan -> ejecucion en vivo -> reporte con causa `app/main.py:44` (confianza alta). Encontro 5 bugs que los tests con mocks no veian: `.env` con claves extra tumbaba el backend (y pydantic imprimia parte del secreto al log), login en la home en bucle, URLs del plan con el puerto dicho en el chat, WS que no detectaba cierre de pagina, y Playwright del `.venv` nuevo sin su navegador (`playwright install chromium`). Apagado verificado en real: al terminar la ejecucion, por pagina cerrada (~111 s) y NO por refresco. Ningun secreto (API key, RUNNER_TOKEN) en DB, logs ni reporte; las credenciales de prueba (`demo123`) si quedan en la DB, como ya estaba aceptado.

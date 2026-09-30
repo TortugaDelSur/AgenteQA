@@ -16,9 +16,10 @@ import atexit
 import re
 import time
 from contextlib import contextmanager
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 from app import live, runner_client
+from app.models.schemas import TestPlan
 
 # ponytail: 90s cubre un refresco o un corte breve de wifi; si los usuarios se quejan de que el repo
 # se apaga en cortes mas largos, subirlo.
@@ -79,6 +80,28 @@ def rebase_urls(extra_urls: list[str], app_url: str) -> list[str]:
         path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
         rebased.append(urljoin(app_url, path or "/"))
     return rebased
+
+
+def rebase_plan(plan: TestPlan, app_url: str, only_host: str | None = None) -> TestPlan:
+    """Muda las URLs del plan a la app local (mismo path). Con `only_host`, solo las de ese host
+    (relevantado: cambia el puerto); sin el, todas: el LLM arma las URLs desde lo que dijo el
+    usuario en el chat (bug real en la e2e: `127.0.0.1:5000` en vez del puerto del runner)."""
+    new = urlparse(app_url)
+
+    def move(url: str) -> str:
+        parsed = urlparse(url)
+        if not parsed.netloc or (only_host is not None and parsed.netloc != only_host):
+            return url
+        return urlunparse(parsed._replace(scheme=new.scheme, netloc=new.netloc))
+
+    data = plan.model_copy(deep=True)
+    for tc in data.test_cases:
+        if tc.request:
+            tc.request.url = move(tc.request.url)
+        for step in tc.steps or []:
+            if step.url:
+                step.url = move(step.url)
+    return data
 
 
 @contextmanager

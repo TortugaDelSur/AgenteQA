@@ -227,6 +227,11 @@ def test_sweep_launches_repo_and_tests_the_local_app(client, monkeypatch, tmp_pa
     ]
     context = client.get(f"/api/chat/{sid}").json()["context"]
     assert context["target_url"] == "http://127.0.0.1:18080"
+    # el LLM arma URLs desde el chat (prod, o el puerto que dijo el usuario): todas pasan a la app local.
+    plan = lines[-1]["plan"]
+    urls = [tc["request"]["url"] for tc in plan["test_cases"] if tc.get("request")]
+    urls += [s["url"] for tc in plan["test_cases"] for s in tc.get("steps") or [] if s.get("url")]
+    assert urls and all(u.startswith("http://127.0.0.1:18080/") or u == "http://127.0.0.1:18080" for u in urls)
 
 
 def test_sweep_asks_which_url_is_the_app_and_resumes_with_the_answer(client, monkeypatch, tmp_path):
