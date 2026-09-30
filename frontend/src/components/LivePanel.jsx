@@ -15,6 +15,7 @@ export default function LivePanel({ sessionId, onProgress }) {
   const [step, setStep] = useState(null);
   const [paused, setPaused] = useState(null);
   const [done, setDone] = useState(false);
+  const [launching, setLaunching] = useState(false);
   const [answer, setAnswer] = useState('');
   const [loginUser, setLoginUser] = useState('');
   const [loginPass, setLoginPass] = useState('');
@@ -30,8 +31,12 @@ export default function LivePanel({ sessionId, onProgress }) {
   useEffect(() => {
     if (!sessionId) return undefined;
     const socket = openLiveSocket(sessionId, (message) => {
-      if (message.type === 'frame') {
+      if (message.type === 'launching') {
+        setLaunching(true);
+        setDone(false);
+      } else if (message.type === 'frame') {
         setFrame(message.data);
+        setLaunching(false);
         setDone(false);
       } else if (message.type === 'step') {
         setStep(message);
@@ -45,7 +50,7 @@ export default function LivePanel({ sessionId, onProgress }) {
     return () => socket.close();
   }, [sessionId]);
 
-  if (!frame && !paused) return null;
+  if (!frame && !paused && !launching) return null;
 
   const resume = async (send) => {
     setBusy(true);
@@ -67,7 +72,9 @@ export default function LivePanel({ sessionId, onProgress }) {
       <p className="sweep-visiting">
         {done
           ? 'Ejecución terminada.'
-          : step && `${step.test_case_id} · paso ${step.index}: ${step.action} ${step.target}`}
+          : launching
+            ? 'Levantando el repo localmente (puede tardar unos minutos)...'
+            : step && `${step.test_case_id} · paso ${step.index}: ${step.action} ${step.target}`}
       </p>
       {frame && <img className="result-screenshot" src={`data:image/jpeg;base64,${frame}`} alt="Navegador en vivo" />}
       {error && <p className="sweep-error">{error}</p>}

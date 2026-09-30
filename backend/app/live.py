@@ -4,6 +4,7 @@ ponytail: bus de un solo proceso; con varios workers de uvicorn cada uno ve solo
 Si se escala, pasar a Redis pub/sub.
 """
 import asyncio
+import time
 from collections import defaultdict
 
 from fastapi import APIRouter, WebSocket
@@ -12,6 +13,17 @@ router = APIRouter()
 
 QUEUE_SIZE = 100
 _subscribers: dict[str, set[asyncio.Queue]] = defaultdict(set)
+# ultima vez que alguien miraba la sesion: sirve para apagar el repo levantado si la pagina se
+# cerro o se corto internet (ver repo/launch.py::reap_idle).
+_last_seen: dict[str, float] = {}
+
+
+def is_watched(session_id: str) -> bool:
+    return bool(_subscribers.get(session_id))
+
+
+def last_seen(session_id: str) -> float | None:
+    return _last_seen.get(session_id)
 
 
 def publish(session_id: str, message: dict) -> None:
@@ -35,6 +47,7 @@ async def ws_live(websocket: WebSocket, session_id: str) -> None:
     except Exception:  # cliente se fue (WebSocketDisconnect, socket cerrado, etc)
         pass
     finally:
+        _last_seen[session_id] = time.monotonic()
         _subscribers[session_id].discard(queue)
         if not _subscribers[session_id]:
             _subscribers.pop(session_id, None)

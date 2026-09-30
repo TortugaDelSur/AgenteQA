@@ -1,6 +1,8 @@
 import asyncio
 import json
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
+
+import httpx
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -12,7 +14,8 @@ from app.execution import ExecutionPaused
 from app.execution.runner import run_test_case
 from app.llm.client import check_page_doubt
 from app.llm.screen_sweeper import try_login
-from app.repo import credentials, workspace
+from app.repo import credentials, launch, workspace
+from app.runner_client import RunnerError
 from app.models.db import ExecutionState, Message, Plan, Result, Session, get_db
 from app.models.schemas import (
     ChatMessage,
@@ -24,7 +27,7 @@ from app.models.schemas import (
     TestPlan,
     TestResult,
 )
-from app.routers.plan import _launch_browser
+from app.routers.plan import _launch_browser, _point_to_app
 
 router = APIRouter()
 
@@ -51,6 +54,51 @@ def _blocked_domain(tc: TestCase, allowed_host: str) -> str | None:
     return None
 
 
+def _rebase_plan(plan: TestPlan, old_host: str, app_url: str) -> TestPlan:
+    """Muda las URLs del plan que apuntaban a `old_host` a la app relevantada (el puerto cambia)."""
+    new = urlparse(app_url)
+
+    def move(url: str) -> str:
+        parsed = urlparse(url)
+        return urlunparse(parsed._replace(scheme=new.scheme, netloc=new.netloc)) if parsed.netloc == old_host else url
+
+    data = plan.model_copy(deep=True)
+    for tc in data.test_cases:
+        if tc.request:
+            tc.request.url = move(tc.request.url)
+        for step in tc.steps or []:
+            if step.url:
+                step.url = move(step.url)
+    return data
+
+
+async def _ensure_app(
+    session_id: str, plan: TestPlan, plan_id: int, context: ContextProgress, db: OrmSession,
+) -> tuple[TestPlan, ContextProgress, str | None]:
+    """Si hay repo clonado y no esta levantado (se apago al terminar otra corrida, o por pagina
+    cerrada), lo relevanta y muda plan + target_url al puerto nuevo. Devuelve (plan, context, error)."""
+    repo = workspace.repo_path(session_id)
+    if repo is None or launch.run_id(session_id):
+        return plan, context, None
+    live.publish(session_id, {"type": "launching"})
+    try:
+        await launch.start(session_id, str(repo))
+    except (RunnerError, httpx.HTTPError) as e:
+        detail = e.detail if isinstance(e, RunnerError) else "el runner no responde"
+        return plan, context, f"no se pudo levantar el repo: {detail}"
+    app_url = launch.chosen_url(session_id)
+    if app_url is None:
+        launch.stop(session_id)  # sin app elegida no sirve arriba: que el proximo intento relevante
+        return plan, context, "el repo publica varias URLs y no se cual es la app: volve a generar el plan"
+    old_host = urlparse(context.target_url).netloc if context.target_url else ""
+    context = _point_to_app(session_id, context, app_url, db)
+    if old_host:
+        plan = _rebase_plan(plan, old_host, app_url)
+        db.get(Plan, plan_id).plan_json = plan.model_dump_json()
+        db.commit()
+    return plan, context, None
+
+
 async def _execute_and_stream(
     session_id: str, plan: TestPlan, plan_id: int, context: ContextProgress,
     history: list[ChatMessage], db: OrmSession,
@@ -61,8 +109,17 @@ async def _execute_and_stream(
     Si el agente no puede seguir solo (login, app caida, duda) la ultima linea es
     {"type": "paused", "reason": ..., "detail": ...} y el proximo POST retoma sin repetir casos.
     Persiste cada resultado en DB apenas llega (no espera al final).
+    Con repo levantado: lo relevanta si hace falta, y lo apaga al terminar (no al pausar).
     """
-    allowed_host = urlparse(context.target_url).netloc if context.target_url else ""
+    with launch.hold(session_id):
+        async for line in _execute(session_id, plan, plan_id, context, history, db):
+            yield line
+
+
+async def _execute(
+    session_id: str, plan: TestPlan, plan_id: int, context: ContextProgress,
+    history: list[ChatMessage], db: OrmSession,
+):
     state = db.get(ExecutionState, session_id)
     if state is not None and state.plan_id != plan_id:
         db.delete(state)
@@ -84,6 +141,12 @@ async def _execute_and_stream(
         event = {"type": "paused", "reason": reason, "detail": detail}
         live.publish(session_id, event)
         return json.dumps(event, ensure_ascii=False) + "\n"
+
+    plan, context, launch_error = await _ensure_app(session_id, plan, plan_id, context, db)
+    if launch_error:
+        yield pause("unreachable", launch_error)
+        return
+    allowed_host = urlparse(context.target_url).netloc if context.target_url else ""
 
     total = len(plan.test_cases)
     playwright = browser = browser_context = None
@@ -150,6 +213,9 @@ async def _execute_and_stream(
 
     db.delete(state)
     db.commit()
+    # pruebas terminadas y resultados guardados (con su causa probable): el repo ya no hace falta.
+    # Si se vuelve a ejecutar, _ensure_app lo relevanta.
+    launch.stop(session_id)
     live.publish(session_id, {"type": "done"})
 
 

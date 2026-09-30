@@ -81,7 +81,7 @@ def test_grep_finds_route_and_selector(tmp_path):
 
 async def test_diagnose_returns_cause_redacts_secrets_and_wraps_untrusted(tmp_path, monkeypatch):
     repo = _repo(tmp_path)
-    launch._runs["s"] = {"run_id": "aqa-s", "urls": [], "chosen": None}
+    launch._runs["s"] = {"run_id": "aqa-s", "urls": [], "chosen": None, "started_at": 0.0}
 
     async def fake_logs(run_id, tail=200):
         return f'error DB password={SECRET}\n  File "/srv/app/users.py", line 3, in users\nKeyError: all'
@@ -126,7 +126,7 @@ async def test_diagnose_returns_none_when_answer_is_unusable(tmp_path, monkeypat
 
 async def test_diagnose_without_runner_logs_still_uses_repo(tmp_path, monkeypatch):
     repo = _repo(tmp_path)
-    launch._runs["s"] = {"run_id": "aqa-s", "urls": [], "chosen": None}
+    launch._runs["s"] = {"run_id": "aqa-s", "urls": [], "chosen": None, "started_at": 0.0}
 
     async def runner_down(run_id, tail=200):
         raise httpx.ConnectError("sin runner")
@@ -183,7 +183,7 @@ def test_launch_forget_survives_runner_down(monkeypatch):
         raise httpx.ConnectError("sin runner")
 
     monkeypatch.setattr(runner_client, "stop_run", boom)
-    launch._runs["s"] = {"run_id": "aqa-s", "urls": [], "chosen": None}
+    launch._runs["s"] = {"run_id": "aqa-s", "urls": [], "chosen": None, "started_at": 0.0}
     launch.forget("s")
     assert launch.run_id("s") is None
 
@@ -281,6 +281,8 @@ def test_failed_case_gets_suspected_cause_saved_and_reported(client, monkeypatch
     monkeypatch.setattr(plan_router, "generate_plan", lambda history, page_snapshot=None: SAMPLE_TEST_PLAN)
     client.post("/api/plan", json={"session_id": sid})
     workspace._clones[sid] = ("https://github.com/acme/app", _repo(tmp_path), None)
+    launch._runs[sid] = {"run_id": f"aqa-{sid}", "urls": ["https://example.com"],
+                         "chosen": "https://example.com", "started_at": 0.0}
 
     async def fake_run(tc, session_id, browser=None, ask=None):
         status = "fail" if tc.id == SAMPLE_TEST_PLAN.test_cases[0].id else "pass"
@@ -311,6 +313,8 @@ def test_failed_case_gets_suspected_cause_saved_and_reported(client, monkeypatch
     monkeypatch.setattr(report_router, "generate_report", fake_report)
     assert client.get(f"/api/report/{sid}").status_code == 200
     assert seen["results"][0].suspected_cause == cause
+    # pruebas terminadas y resultados entregados: el repo se apaga.
+    assert launch.run_id(sid) is None
 
 
 def test_launch_forget_from_sync_context_awaits_the_stop(monkeypatch):
@@ -320,7 +324,7 @@ def test_launch_forget_from_sync_context_awaits_the_stop(monkeypatch):
         stopped.append(run_id)
 
     monkeypatch.setattr(runner_client, "stop_run", fake_stop)
-    launch._runs["s"] = {"run_id": "aqa-s", "urls": [], "chosen": None}
+    launch._runs["s"] = {"run_id": "aqa-s", "urls": [], "chosen": None, "started_at": 0.0}
     launch.forget("s")
     assert stopped == ["aqa-s"]
 
@@ -330,8 +334,121 @@ async def test_launch_background_stop_swallows_runner_errors(monkeypatch):
         raise httpx.ConnectError("sin runner")
 
     monkeypatch.setattr(runner_client, "stop_run", boom)
-    launch._runs["s"] = {"run_id": "aqa-s", "urls": [], "chosen": None}
+    launch._runs["s"] = {"run_id": "aqa-s", "urls": [], "chosen": None, "started_at": 0.0}
     launch.forget("s")
     await asyncio.gather(*launch._pending, return_exceptions=True)
     await asyncio.sleep(0)
     assert not launch._pending
+
+
+# --- apagado ---
+
+def test_reap_idle_only_stops_unwatched_and_idle_sessions(monkeypatch):
+    stopped = []
+
+    async def fake_stop(run_id):
+        stopped.append(run_id)
+
+    monkeypatch.setattr(runner_client, "stop_run", fake_stop)
+    from app import live
+
+    for sid in ("cerrada", "mirando", "refresco", "ocupada", "recien"):
+        launch._runs[sid] = {"run_id": f"aqa-{sid}", "urls": [], "chosen": None, "started_at": 0.0}
+    launch._runs["recien"]["started_at"] = 950.0
+    monkeypatch.setitem(live._subscribers, "mirando", {object()})
+    monkeypatch.setitem(live._last_seen, "cerrada", 100.0)    # se fue hace 900s
+    monkeypatch.setitem(live._last_seen, "refresco", 990.0)   # se desconecto hace 10s (refresco)
+
+    with launch.hold("ocupada"):
+        assert sorted(launch.reap_idle(1000.0)) == ["cerrada"]
+    assert stopped == ["aqa-cerrada"]
+    assert launch.run_id("ocupada") and launch.run_id("mirando") and launch.run_id("refresco")
+
+    # la ejecucion termino y la pagina no volvio: ahora si se apaga.
+    assert "ocupada" in launch.reap_idle(1000.0)
+    live._subscribers.pop("mirando", None)
+
+
+async def test_relaunch_remembers_the_chosen_app_by_position(monkeypatch):
+    ports = iter([["http://127.0.0.1:1000", "http://127.0.0.1:1001"], ["http://127.0.0.1:2000", "http://127.0.0.1:2001"]])
+
+    async def fake_start(session_id, repo_path):
+        return {"run_id": "aqa-s", "urls": next(ports)}
+
+    monkeypatch.setattr(runner_client, "start_run", fake_start)
+    await launch.start("s", "/repo")
+    launch.choose("s", "1001")
+    launch.stop("s")
+    await asyncio.gather(*launch._pending)
+
+    await launch.start("s", "/repo")
+    assert launch.chosen_url("s") == "http://127.0.0.1:2001"
+
+    launch.forget("s")  # repo nuevo: se olvida la eleccion
+    await asyncio.gather(*launch._pending)
+    assert "s" not in launch._chosen_index
+
+
+def test_execute_relaunches_stopped_repo_and_moves_plan_to_new_port(client, monkeypatch, tmp_path):
+    old = "http://127.0.0.1:18080"
+    monkeypatch.setattr(
+        chat_router, "llm_chat",
+        lambda history, page_snapshot=None: ("hola", ContextProgress(target_url=old)),
+    )
+    sid = client.post("/api/chat", json={"message": "hola"}).json()["session_id"]
+    plan = SAMPLE_TEST_PLAN.model_copy(deep=True)
+    for tc in plan.test_cases:
+        if tc.request:
+            tc.request.url = old + "/api/users"
+        for step in tc.steps or []:
+            if step.url:
+                step.url = old + "/login"
+    monkeypatch.setattr(plan_router, "generate_plan", lambda history, page_snapshot=None: plan)
+    client.post("/api/plan", json={"session_id": sid})
+    workspace._clones[sid] = ("https://github.com/acme/app", _repo(tmp_path), None)
+
+    async def fake_start(session_id, repo_path):
+        return {"run_id": f"aqa-{session_id}", "urls": ["http://127.0.0.1:29999"]}
+
+    ran = []
+
+    async def fake_run(tc, session_id, browser=None, ask=None):
+        ran.append(tc.request.url if tc.request else [s.url for s in tc.steps if s.url])
+        return TestResult(test_case_id=tc.id, status="pass", detail="ok")
+
+    monkeypatch.setattr(runner_client, "start_run", fake_start)
+    monkeypatch.setattr(execute_router, "run_test_case", fake_run)
+
+    lines = _ndjson(client.post("/api/execute", json={"session_id": sid}).text)
+
+    assert all(line["result"]["status"] == "pass" for line in lines)  # sin bloqueo de dominio
+    assert "http://127.0.0.1:29999/api/users" in ran or ["http://127.0.0.1:29999/login"] in ran
+    assert "18080" not in json.dumps(ran)
+    assert client.get(f"/api/chat/{sid}").json()["context"]["target_url"] == "http://127.0.0.1:29999"
+    assert launch.run_id(sid) is None  # termino: se apago
+
+
+def test_execute_pauses_when_repo_cannot_be_relaunched(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        chat_router, "llm_chat",
+        lambda history, page_snapshot=None: ("hola", ContextProgress(target_url="https://example.com")),
+    )
+    sid = client.post("/api/chat", json={"message": "hola"}).json()["session_id"]
+    monkeypatch.setattr(plan_router, "generate_plan", lambda history, page_snapshot=None: SAMPLE_TEST_PLAN)
+    client.post("/api/plan", json={"session_id": sid})
+    workspace._clones[sid] = ("https://github.com/acme/app", _repo(tmp_path), None)
+
+    async def two_urls(session_id, repo_path):
+        return {"run_id": f"aqa-{session_id}", "urls": ["http://127.0.0.1:1", "http://127.0.0.1:2"]}
+
+    async def runner_down(session_id, repo_path):
+        raise httpx.ConnectError("sin runner")
+
+    monkeypatch.setattr(runner_client, "start_run", runner_down)
+    lines = _ndjson(client.post("/api/execute", json={"session_id": sid}).text)
+    assert lines == [{"type": "paused", "reason": "unreachable", "detail": "no se pudo levantar el repo: el runner no responde"}]
+
+    client.post("/api/execute/answer", json={"session_id": sid, "answer": "ya esta"})
+    monkeypatch.setattr(runner_client, "start_run", two_urls)
+    lines = _ndjson(client.post("/api/execute", json={"session_id": sid}).text)
+    assert lines[0]["reason"] == "unreachable" and "varias URLs" in lines[0]["detail"]

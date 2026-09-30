@@ -68,9 +68,12 @@ links: [data]
       tech: ExecutionState (copia de SweepState) + POST /api/execute/answer y /login; un assert que falla NO pausa, es un resultado
       from: agent
       by: claude
-- [x] Levantar el repo antes del barrido y probar contra su URL local; se apaga al olvidar el repo o cerrar el backend {#wire-runner}
+- [x] Levantar el repo antes del barrido y probar contra su URL local {#wire-runner}
       tech: repo/launch.py + routers/plan.py::_run_sweep (evento "launching"); varias URLs -> pregunta REPO_CHOICE en el barrido; _point_to_app muda target_url y extra_urls
       from: agent
+      by: claude
+- [x] Apagar el repo levantado al terminar las pruebas, o si la pagina del agente se cierra o se corta internet; un refresco no lo apaga
+      tech: launch.stop al final de _execute; launch.reap_idle (WS sin mirar > 90 s y sin barrido/ejecucion en curso, launch.hold); relevanta solo en _ensure_app y muda el plan al puerto nuevo
       by: claude
 - [x] Tras refrescar la pagina, la pausa pendiente sigue visible y se puede responder
       tech: GET /api/execute/state/{session_id}; LivePanel lo consulta al montarse
@@ -225,3 +228,4 @@ files: [frontend/src/App.jsx, frontend/src/api/client.js, frontend/src/styles.cs
 - Nadie tomo la decision "la URL del repo levantado reemplaza a target_url": pasa a ser la primera tarea de la pista D (`{#wire-runner}`), porque la causa probable necesita un run activo del que leer logs.
 - Vista en vivo y API sin autenticacion en local (WS por session_id, CORS `*`): aceptado para local, tarea de roadmap antes de la instancia.
 - Pista D (2026-09-30): el repo levantado queda arriba durante toda la sesion y se apaga al olvidar el repo (`DELETE /api/repo/{id}`, cambio de URL) o al cerrar el backend, no al terminar cada ejecucion: el runner publica puertos al azar, y relevantarlo dejaria las URLs del plan apuntando a un puerto viejo. La causa probable se calcula en el momento en que falla cada caso (logs frescos) y se guarda en `Result`; el reporte solo la presenta. El LLM solo puede señalar archivos que existen en el repo; si inventa uno, no se muestra causa.
+- Apagado del repo levantado (2026-09-30, pedido del owner; reemplaza "queda arriba toda la sesion"): se apaga (1) al terminar una ejecucion completa (no al pausar), (2) cuando la pagina del agente se cierra o el usuario pierde internet: nadie mira el WebSocket de la sesion por mas de 90 s y no hay barrido/ejecucion en curso. Un refresco reconecta en segundos, asi que no lo apaga. Si despues se vuelve a barrer o ejecutar, se relevanta solo: se recuerda cual de las URLs era la app (por posicion) y las URLs del plan guardado se mudan al puerto nuevo.

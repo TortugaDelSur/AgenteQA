@@ -1,25 +1,44 @@
 """Repo levantado por el runner, por sesion: run_id, URLs publicadas y cual es la app.
 
-Queda arriba toda la sesion (el runner publica puertos al azar: relevantarlo dejaria las URLs del
-plan apuntando a un puerto viejo). Se apaga al olvidar el repo o al cerrar el backend.
+Cuando se apaga:
+- al terminar una ejecucion completa (`stop`, lo llama execute.py; una pausa NO lo apaga);
+- cuando nadie mira la pagina del agente (WebSocket de la sesion cerrado: pagina cerrada o sin
+  internet) por mas de IDLE_GRACE_S y no hay barrido/ejecucion en curso (`reap_idle`). Un refresco
+  reconecta en segundos, asi que no lo apaga;
+- al olvidar el repo (`forget`) o al cerrar el backend.
+
+Si se vuelve a necesitar, se relevanta: la app elegida se recuerda por posicion entre las URLs
+(el runner publica puertos al azar, asi que la URL en si cambia).
 """
 
 import asyncio
 import atexit
 import re
+import time
+from contextlib import contextmanager
 from urllib.parse import urljoin, urlparse
 
-from app import runner_client
+from app import live, runner_client
 
-# ponytail: dict de un solo proceso, igual que credentials/workspace.
+# ponytail: 90s cubre un refresco o un corte breve de wifi; si los usuarios se quejan de que el repo
+# se apaga en cortes mas largos, subirlo.
+IDLE_GRACE_S = 90
+REAP_EVERY_S = 15
+
+# ponytail: dicts de un solo proceso, igual que credentials/workspace.
 _runs: dict[str, dict] = {}
+_chosen_index: dict[str, int] = {}  # sobrevive a `stop`: al relevantar se elige la misma app
+_busy: dict[str, int] = {}  # barridos/ejecuciones en curso por sesion
 
 
 async def start(session_id: str, repo_path: str) -> list[str]:
-    """Levanta el repo y devuelve sus URLs web. Si hay una sola, queda elegida como la app."""
+    """Levanta el repo y devuelve sus URLs web. Si hay una sola, o ya se habia elegido la app en un
+    levantado anterior, queda elegida."""
     run = await runner_client.start_run(session_id, repo_path)
     urls = run["urls"]
-    _runs[session_id] = {"run_id": run["run_id"], "urls": urls, "chosen": urls[0] if len(urls) == 1 else None}
+    index = 0 if len(urls) == 1 else _chosen_index.get(session_id)
+    chosen = urls[index] if index is not None and index < len(urls) else None
+    _runs[session_id] = {"run_id": run["run_id"], "urls": urls, "chosen": chosen, "started_at": time.monotonic()}
     return urls
 
 
@@ -43,10 +62,11 @@ def choose(session_id: str, answer: str) -> str | None:
     run = _runs.get(session_id)
     if not run:
         return None
-    for url in run["urls"]:
+    for index, url in enumerate(run["urls"]):
         port = str(urlparse(url).port)
         if url in answer or re.search(rf"(?<!\d){port}(?!\d)", answer):
             run["chosen"] = url
+            _chosen_index[session_id] = index
             return url
     return None
 
@@ -61,8 +81,21 @@ def rebase_urls(extra_urls: list[str], app_url: str) -> list[str]:
     return rebased
 
 
-def forget(session_id: str) -> None:
-    """Apaga el repo levantado (best-effort: si el runner no responde, se olvida igual)."""
+@contextmanager
+def hold(session_id: str):
+    """Marca un barrido/ejecucion en curso: mientras dure, `reap_idle` no apaga el repo."""
+    _busy[session_id] = _busy.get(session_id, 0) + 1
+    try:
+        yield
+    finally:
+        _busy[session_id] -= 1
+        if not _busy[session_id]:
+            del _busy[session_id]
+
+
+def stop(session_id: str) -> None:
+    """Apaga el repo levantado (best-effort: si el runner no responde, se olvida igual).
+    Recuerda cual era la app, para relevantarlo igual."""
     run = _runs.pop(session_id, None)
     if run is None:
         return
@@ -80,6 +113,12 @@ def forget(session_id: str) -> None:
     task.add_done_callback(_done)
 
 
+def forget(session_id: str) -> None:
+    """Apaga y olvida tambien cual era la app (el repo cambio o se desconecto)."""
+    stop(session_id)
+    _chosen_index.pop(session_id, None)
+
+
 # referencias fuertes a las tareas de apagado (si no, el GC puede cortarlas a mitad de camino).
 _pending: set[asyncio.Task] = set()
 
@@ -90,7 +129,26 @@ def _done(task: asyncio.Task) -> None:
         task.exception()  # consumida: el runner caido no es un error de la app
 
 
+def reap_idle(now: float) -> list[str]:
+    """Apaga los repos que nadie mira hace mas de IDLE_GRACE_S y que no tienen trabajo en curso."""
+    idle = [
+        sid for sid, run in _runs.items()
+        if sid not in _busy
+        and not live.is_watched(sid)
+        and now - max(run["started_at"], live.last_seen(sid) or 0.0) > IDLE_GRACE_S
+    ]
+    for sid in idle:
+        stop(sid)
+    return idle
+
+
+async def reap_forever() -> None:  # pragma: no cover - loop infinito; la logica esta en reap_idle
+    while True:
+        await asyncio.sleep(REAP_EVERY_S)
+        reap_idle(time.monotonic())
+
+
 @atexit.register
 def _stop_all() -> None:
     for session_id in list(_runs):
-        forget(session_id)
+        stop(session_id)

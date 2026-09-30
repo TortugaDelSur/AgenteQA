@@ -249,8 +249,10 @@ async def post_plan_sweep(req: PlanRequest, db: OrmSession = Depends(get_db)) ->
     ]
 
     async def gen():
-        async for event in _run_sweep(req.session_id, context, history, db):
-            yield json.dumps(event, ensure_ascii=False) + "\n"
+        # mientras barre, el repo levantado no se apaga por inactividad (ver repo/launch.py).
+        with launch.hold(req.session_id):
+            async for event in _run_sweep(req.session_id, context, history, db):
+                yield json.dumps(event, ensure_ascii=False) + "\n"
 
     return StreamingResponse(gen(), media_type="application/x-ndjson")
 
