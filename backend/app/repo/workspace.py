@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 from app.models.schemas import RepoInfo, repo_provider
-from app.repo import credentials
+from app.repo import credentials, launch
 from app.repo.clone import CloneError, clone
 from app.repo.inspector import format_repo_summary, inspect_repo
 
@@ -28,6 +28,7 @@ def repo_path(session_id: str) -> Path | None:
 
 def forget(session_id: str) -> None:
     _failed.pop(session_id, None)
+    launch.forget(session_id)  # el repo levantado de un clone viejo no sirve
     entry = _clones.pop(session_id, None)
     if entry:
         shutil.rmtree(entry[1].parent, ignore_errors=True)

@@ -7,10 +7,12 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session as OrmSession
 
 from app import live
+from app.diagnosis import diagnose
 from app.execution import ExecutionPaused
 from app.execution.runner import run_test_case
 from app.llm.client import check_page_doubt
 from app.llm.screen_sweeper import try_login
+from app.repo import credentials, workspace
 from app.models.db import ExecutionState, Message, Plan, Result, Session, get_db
 from app.models.schemas import (
     ChatMessage,
@@ -121,12 +123,18 @@ async def _execute_and_stream(
                     yield pause(paused.reason, paused.detail)
                     return
 
+            repo = workspace.repo_path(session_id)
+            if repo is not None and result.status != "pass" and not blocked_host:
+                secrets = credentials.known_secrets(session_id) + [context.password or ""]
+                result.suspected_cause = await diagnose(session_id, repo, tc, result, secrets)
+
             db.add(Result(
                 session_id=session_id,
                 test_case_id=result.test_case_id,
                 status=result.status,
                 detail=result.detail,
                 evidence=result.evidence,
+                suspected_cause_json=result.suspected_cause.model_dump_json() if result.suspected_cause else None,
             ))
             state.next_index = index + 1
             db.commit()

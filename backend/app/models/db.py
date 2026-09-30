@@ -92,6 +92,8 @@ class Result(Base):
     status: Mapped[str]
     detail: Mapped[str]
     evidence: Mapped[str | None]
+    # SuspectedCause serializado; solo si hay repo levantado y el caso fallo.
+    suspected_cause_json: Mapped[str | None] = mapped_column(default=None)
     created_at: Mapped[datetime.datetime] = mapped_column(default=datetime.datetime.utcnow)
 
 

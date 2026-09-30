@@ -110,12 +110,12 @@ def _env_keys(root: Path) -> list[str]:
     return keys
 
 
-def _source_files(root: Path):
+def _source_files(root: Path, exts: set[str] = _SOURCE_EXT):
     count = 0
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
         for f in filenames:
-            if Path(f).suffix in _SOURCE_EXT:
+            if Path(f).suffix in exts:
                 count += 1
                 if count > MAX_FILES:
                     return

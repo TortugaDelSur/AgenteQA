@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from app.llm.client import generate_report
 from app.models.db import Plan, Result, Session, get_db
-from app.models.schemas import TestPlan, TestResult
+from app.models.schemas import SuspectedCause, TestPlan, TestResult
 
 router = APIRouter()
 
@@ -42,7 +42,10 @@ def get_report(
     plan = TestPlan.model_validate_json(plan_row.plan_json)
     results = [
         TestResult(
-            test_case_id=r.test_case_id, status=r.status, detail=r.detail, evidence=r.evidence
+            test_case_id=r.test_case_id, status=r.status, detail=r.detail, evidence=r.evidence,
+            suspected_cause=(
+                SuspectedCause.model_validate_json(r.suspected_cause_json) if r.suspected_cause_json else None
+            ),
         )
         for r in result_rows
     ]

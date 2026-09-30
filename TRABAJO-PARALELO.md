@@ -128,11 +128,11 @@ Archivos: `backend/app/execution/**`, `backend/app/routers/execute.py`, `backend
 ## Pista D: causa probable (después de A y B)
 
 Archivos: `backend/app/diagnosis.py`, `backend/app/routers/report.py`, `backend/app/routers/plan.py` y `routers/execute.py` (solo el enganche del runner), `llm/prompts.py` (`REPORT_SYSTEM_PROMPT`)
-- [ ] Primero, enganchar el runner: si la sesion tiene repo clonado (`workspace.repo_path`), `runner_client.start_run` antes del barrido; la URL local pasa a ser `target_url` (si hay varias, pausa y pregunta cual); guardar `run_id` por sesion; `stop_run` al terminar la ejecucion o al olvidar el repo
-- [ ] Juntar logs (`runner_client`), detalle y evidencia del test fallido
-- [ ] Grep en el repo por path de la URL, texto del selector y mensaje de error
-- [ ] Prompt a LLM con `redact` + `wrap_untrusted`, que devuelva `SuspectedCause` validado
-- [ ] Mostrar la causa en el reporte (Markdown y HTML)
+- [x] Primero, enganchar el runner: si la sesion tiene repo clonado (`workspace.repo_path`), `runner_client.start_run` antes del barrido; la URL local pasa a ser `target_url` (si hay varias, pausa y pregunta cual); guardar `run_id` por sesion; `stop_run` al terminar la ejecucion o al olvidar el repo
+- [x] Juntar logs (`runner_client`), detalle y evidencia del test fallido
+- [x] Grep en el repo por path de la URL, texto del selector y mensaje de error
+- [x] Prompt a LLM con `redact` + `wrap_untrusted`, que devuelva `SuspectedCause` validado
+- [x] Mostrar la causa en el reporte (Markdown y HTML)
 
 ## Archivos compartidos (coordinar antes de tocarlos)
 

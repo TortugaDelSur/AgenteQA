@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from app.config import settings
 from app.llm.prompts import (
     CHAT_SYSTEM_PROMPT,
+    DIAGNOSIS_SYSTEM_PROMPT,
     PAGE_DOUBT_SYSTEM_PROMPT,
     PLAN_SYSTEM_PROMPT,
     REPORT_SYSTEM_PROMPT,
@@ -118,3 +119,17 @@ def generate_report(plan: TestPlan, results: list[TestResult]) -> str:
         temperature=TEMPERATURE,
     )
     return response.choices[0].message.content
+
+
+def diagnose_failure(evidence: str) -> dict:
+    """`evidence` ya viene redactado y envuelto como no confiable (ver app/diagnosis.py)."""
+    response = get_client().chat.completions.create(
+        model=settings.deepseek_model,
+        messages=[
+            {"role": "system", "content": DIAGNOSIS_SYSTEM_PROMPT},
+            {"role": "user", "content": evidence},
+        ],
+        response_format={"type": "json_object"},
+        temperature=TEMPERATURE,
+    )
+    return json.loads(response.choices[0].message.content)

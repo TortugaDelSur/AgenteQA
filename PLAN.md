@@ -68,9 +68,10 @@ links: [data]
       tech: ExecutionState (copia de SweepState) + POST /api/execute/answer y /login; un assert que falla NO pausa, es un resultado
       from: agent
       by: claude
-- [ ] Levantar el repo antes del barrido, probar contra su URL local y apagarlo al terminar {#wire-runner}
-      tech: runner_client.start_run -> target_url = URL local (si hay varias, pausa y pregunta cual); stop_run al terminar; _blocked_domain ya compara contra target_url
+- [x] Levantar el repo antes del barrido y probar contra su URL local; se apaga al olvidar el repo o cerrar el backend {#wire-runner}
+      tech: repo/launch.py + routers/plan.py::_run_sweep (evento "launching"); varias URLs -> pregunta REPO_CHOICE en el barrido; _point_to_app muda target_url y extra_urls
       from: agent
+      by: claude
 - [x] Tras refrescar la pagina, la pausa pendiente sigue visible y se puede responder
       tech: GET /api/execute/state/{session_id}; LivePanel lo consulta al montarse
       by: claude
@@ -88,9 +89,10 @@ needs: [execution]
       tech: llm/client.py::generate_report, llm/prompts.py::REPORT_SYSTEM_PROMPT
 - [x] Exporta tambien en HTML (`?format=html`, tabla de resultados)
       tech: routers/report.py (param `format`, lib `markdown`)
-- [ ] Senalar la posible causa de cada fallo (archivo y linea del repo) con su nivel de confianza
-      tech: backend/app/diagnosis.py — logs del runner + detalle del test + grep en el repo; TestResult.suspected_cause; redacta secretos antes
+- [x] Senalar la posible causa de cada fallo (archivo y linea del repo) con su nivel de confianza
+      tech: backend/app/diagnosis.py — logs del runner (stack trace mapeado al repo) + grep por ruta/selector/texto; solo archivos que existen; Result.suspected_cause_json; se muestra en ejecucion y reporte
       from: agent
+      by: claude
 
 files: [backend/app/routers/report.py, backend/app/diagnosis.py]
 
@@ -222,3 +224,4 @@ files: [frontend/src/App.jsx, frontend/src/api/client.js, frontend/src/styles.cs
 - Runner sin usuario no root forzado: forzar `user:` rompe muchas imagenes. Se compensa con `no-new-privileges`, sin `cap_add`/`privileged` y sin accesos al host. `env_file` fuera del repo no se puede frenar (compose ya lo inlinea); aceptado con repos de la empresa.
 - Nadie tomo la decision "la URL del repo levantado reemplaza a target_url": pasa a ser la primera tarea de la pista D (`{#wire-runner}`), porque la causa probable necesita un run activo del que leer logs.
 - Vista en vivo y API sin autenticacion en local (WS por session_id, CORS `*`): aceptado para local, tarea de roadmap antes de la instancia.
+- Pista D (2026-09-30): el repo levantado queda arriba durante toda la sesion y se apaga al olvidar el repo (`DELETE /api/repo/{id}`, cambio de URL) o al cerrar el backend, no al terminar cada ejecucion: el runner publica puertos al azar, y relevantarlo dejaria las URLs del plan apuntando a un puerto viejo. La causa probable se calcula en el momento en que falla cada caso (logs frescos) y se guarda en `Result`; el reporte solo la presenta. El LLM solo puede señalar archivos que existen en el repo; si inventa uno, no se muestra causa.

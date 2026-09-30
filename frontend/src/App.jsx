@@ -70,6 +70,8 @@ function SweepPanel({ events, question, onAnswer, loginRequired, onSubmitLogin, 
         <div className="sweep-event" key={index}>
           {event.type === 'error' ? (
             <p className="sweep-error">{event.url}: {event.detail}</p>
+          ) : event.type === 'launching' ? (
+            <p className="sweep-visiting">{event.detail}</p>
           ) : event.type === 'page_result' ? (
             <>
               <p>{event.url} — {event.summary}</p>
@@ -459,6 +461,16 @@ export default function App() {
                       <div className="result-body">
                         <strong>{result.test_case_id}</strong>
                         <p>{result.detail}</p>
+                        {result.suspected_cause && (
+                          <p className="result-cause">
+                            <strong>Causa probable</strong> ({result.suspected_cause.confidence}):{' '}
+                            <code>
+                              {result.suspected_cause.file}
+                              {result.suspected_cause.line ? `:${result.suspected_cause.line}` : ''}
+                            </code>
+                            {' — '}{result.suspected_cause.explanation}
+                          </p>
+                        )}
                         {result.screenshot_b64 && (
                           <img
                             className="result-screenshot"

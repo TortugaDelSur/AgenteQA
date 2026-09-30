@@ -1,5 +1,7 @@
 import json
 
+import httpx
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
@@ -10,6 +12,8 @@ from app.llm.client import check_page_doubt, generate_plan
 from app.llm.page_inspector import format_snapshots, inspect_multiple, inspect_page
 from app.llm.screen_sweeper import capture_page, try_login
 from app.models.db import Message, Plan, Session, SweepState, get_db
+from app.repo import launch, workspace
+from app.runner_client import RunnerError
 from app.models.schemas import (
     ChatMessage,
     ContextProgress,
@@ -22,6 +26,9 @@ from app.models.schemas import (
 router = APIRouter()
 
 MAX_SWEEP_QUESTIONS = 3
+# marca en SweepState.pending_question_url: la pregunta es "cual de las URLs del repo es la app",
+# no una duda sobre una pantalla.
+REPO_CHOICE = "repo:elegir-app"
 
 
 async def _build_page_snapshot(context: ContextProgress) -> str | None:
@@ -86,13 +93,51 @@ def _looks_like_login(elements: str) -> bool:
     return 'type="password"' in elements
 
 
+def _point_to_app(session_id: str, context: ContextProgress, app_url: str, db: OrmSession) -> ContextProgress:
+    """La app local del repo pasa a ser `target_url`; las paginas extra se mudan a ese host (mismo path).
+    Todo lo demas (barrido, bloqueo de dominio, ejecucion) sigue igual, contra la app local."""
+    data = context.model_dump()
+    data["target_url"] = app_url
+    data["extra_urls"] = launch.rebase_urls(context.extra_urls, app_url)
+    context = ContextProgress(**data)
+    db.get(Session, session_id).context_json = context.model_dump_json()
+    db.commit()
+    return context
+
+
 async def _run_sweep(session_id: str, context: ContextProgress, history: list[ChatMessage], db: OrmSession):
     """Barrido de pantallas con pausa dura por duda o por login, sobre `target_url` + `extra_urls`.
 
-    NDJSON: una linea por evento ("visiting", "page_result", "error", "question", "login_required",
-    "plan_ready"). "question"/"login_required"/"plan_ready" son siempre la ultima linea del stream
-    (cortan el generador).
+    Si la sesion tiene un repo clonado, antes lo levanta con el runner y prueba contra la app local.
+
+    NDJSON: una linea por evento ("launching", "visiting", "page_result", "error", "question",
+    "login_required", "plan_ready"). "question"/"login_required"/"plan_ready" son siempre la ultima
+    linea del stream (cortan el generador).
     """
+    repo = workspace.repo_path(session_id)
+    if repo is not None and launch.chosen_url(session_id) is None:
+        if not launch.urls(session_id):
+            yield {"type": "launching", "detail": "Levantando el repo localmente (build + arranque, puede tardar unos minutos)..."}
+            try:
+                await launch.start(session_id, str(repo))
+            except (RunnerError, httpx.HTTPError) as e:
+                detail = e.detail if isinstance(e, RunnerError) else "el runner no responde (esta levantado?)"
+                yield {"type": "error", "url": context.repo_url or "repo", "detail": f"no se pudo levantar el repo: {detail}"}
+        if len(launch.urls(session_id)) > 1:
+            state = db.get(SweepState, session_id) or SweepState(session_id=session_id, pages_json="[]")
+            state.pending_question = (
+                "El repo publica varias URLs web: " + ", ".join(launch.urls(session_id))
+                + ". ¿Cual es la app a probar? (responde con la URL o el puerto)"
+            )
+            state.pending_question_url = REPO_CHOICE
+            db.add(state)
+            db.commit()
+            yield {"type": "question", "url": REPO_CHOICE, "question": state.pending_question}
+            return
+    app_url = launch.chosen_url(session_id)
+    if app_url and context.target_url != app_url:
+        context = _point_to_app(session_id, context, app_url, db)
+
     if not context.target_url:
         plan = generate_plan(history, page_snapshot=None)
         db.add(Plan(session_id=session_id, plan_json=plan.model_dump_json()))
@@ -215,6 +260,16 @@ async def post_plan_sweep_answer(req: SweepAnswerRequest, db: OrmSession = Depen
     state = db.get(SweepState, req.session_id)
     if state is None or not state.pending_question:
         raise HTTPException(status_code=409, detail="no hay una pregunta pendiente para esta sesion")
+
+    if state.pending_question_url == REPO_CHOICE:
+        if launch.choose(req.session_id, req.answer) is None:
+            raise HTTPException(
+                status_code=422, detail="responde con una de las URLs (o su puerto): " + ", ".join(launch.urls(req.session_id)),
+            )
+        # el barrido arranca de cero contra la app elegida (las paginas se arman con esa URL).
+        db.delete(state)
+        db.commit()
+        return {"status": "ok"}
 
     db.add(Message(session_id=req.session_id, role="user", content=req.answer))
     state.pending_question = None
