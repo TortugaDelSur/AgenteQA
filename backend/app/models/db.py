@@ -62,6 +62,27 @@ class SweepState(Base):
     login_url: Mapped[str | None] = mapped_column(default=None)
 
 
+class ExecutionState(Base):
+    """Donde quedo pausada una ejecucion (una fila por sesion). Mismo patron que SweepState:
+    el NDJSON corta con {"type": "paused"} y el proximo POST /api/execute retoma desde next_index.
+    """
+    __tablename__ = "execution_states"
+
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id"), primary_key=True)
+    # si se genera un plan nuevo, el estado viejo no aplica y se arranca de cero.
+    plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id"))
+    # el caso pausado NO se cuenta como hecho: se re-ejecuta al retomar.
+    next_index: Mapped[int] = mapped_column(default=0)
+    # "login" | "question" | "unreachable" mientras espera al usuario; None si puede seguir.
+    paused_reason: Mapped[str | None] = mapped_column(default=None)
+    paused_detail: Mapped[str | None] = mapped_column(default=None)
+    questions_asked: Mapped[int] = mapped_column(default=0)
+    # caso cuya duda ya se respondio: al re-ejecutarlo no se vuelve a preguntar.
+    answered_index: Mapped[int | None] = mapped_column(default=None)
+    # pagina del muro de login; al retomar se loguea ahi una vez para toda la ejecucion.
+    login_url: Mapped[str | None] = mapped_column(default=None)
+
+
 class Result(Base):
     __tablename__ = "results"
 

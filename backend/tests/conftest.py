@@ -32,3 +32,23 @@ def client():
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+class FakeBrowserContext:
+    """Browser/context de Playwright falso para los tests de /api/execute (run_test_case va mockeado)."""
+
+    async def new_context(self):
+        return self
+
+    async def close(self):
+        pass
+
+
+@pytest.fixture(autouse=True)
+def fake_execute_browser(monkeypatch):
+    import app.routers.execute as execute_router
+
+    async def _launch():
+        return None, FakeBrowserContext()
+
+    monkeypatch.setattr(execute_router, "_launch_browser", _launch)

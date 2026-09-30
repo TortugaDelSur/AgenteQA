@@ -1,5 +1,6 @@
 import httpx
 
+from app.execution import ExecutionPaused
 from app.llm.page_inspector import REQUEST_HEADERS
 from app.models.schemas import TestCase, TestResult
 
@@ -11,7 +12,8 @@ async def run_endpoint(tc: TestCase, client: httpx.AsyncClient | None = None) ->
     """Ejecuta un TestCase tipo "endpoint": hace la request y compara status/body.
 
     `client` es inyectable para tests (httpx.MockTransport); si no viene, se crea y cierra uno propio.
-    Una excepcion de red devuelve status "error" (no propaga, para no tumbar el resto del plan).
+    Si la app no responde (ConnectError) lanza ExecutionPaused; otra excepcion de red devuelve
+    status "error" (no propaga, para no tumbar el resto del plan).
     """
     req = tc.request
     if req is None:
@@ -27,6 +29,8 @@ async def run_endpoint(tc: TestCase, client: httpx.AsyncClient | None = None) ->
         response = await client.request(
             req.method, req.url, headers=req.headers or None, json=req.body
         )
+    except httpx.ConnectError as exc:
+        raise ExecutionPaused("unreachable", f"no se pudo conectar a {req.url}: {exc}") from exc
     except httpx.HTTPError as exc:
         return TestResult(
             test_case_id=tc.id, status="error", detail=f"la request fallo: {exc!r}"

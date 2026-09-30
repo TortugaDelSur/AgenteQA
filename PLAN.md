@@ -16,6 +16,9 @@ Agente QA conversacional: charla para juntar contexto, arma un plan de pruebas, 
       tech: ContextProgress.repo_url + filtro duro de host, mismo estilo que _sanitize_extra_urls
       from: agent
       by: claude
+- [x] Usar el resumen del repo clonado (framework, servicios, rutas) como contexto del chat
+      tech: routers/chat.py -> repo/workspace.py::repo_context (mensaje efimero, no se guarda); redact con known_secrets
+      by: claude
 
 files: [backend/app/routers/chat.py, backend/app/llm/prompts.py, backend/app/models/schemas.py]
 
@@ -53,15 +56,15 @@ links: [data]
       tech: routers/execute.py::_execute_and_stream
 - [x] Bloqueo duro de dominio: un test case que apunte fuera del dominio confirmado no se ejecuta, aunque el prompt del plan lo hubiera dejado pasar
       tech: routers/execute.py::_blocked_domain
-- [~] Usar un solo navegador para toda la ejecucion (requisito de la vista en vivo) {#shared-browser}
+- [x] Usar un solo navegador para toda la ejecucion (requisito de la vista en vivo) {#shared-browser}
       tech: _execute_and_stream abre el browser y lo pasa a run_ui(browser=...)
       from: agent
       by: claude
-- [~] Ver el navegador en vivo mientras corre cada prueba, solo lectura: el usuario mira, no puede hacer clic ni escribir
+- [x] Ver el navegador en vivo mientras corre cada prueba, solo lectura: el usuario mira, no puede hacer clic ni escribir
       tech: Playwright CDP `Page.startScreencast`, WebSocket en FastAPI (solo servidor a cliente, sin eventos de entrada), canvas en el front
       from: agent
       by: claude
-- [~] Si el agente se topa con algo que no puede resolver (login, duda, error inesperado), pausa la prueba y le pregunta al usuario; retoma con la respuesta
+- [x] Si el agente se topa con algo que no puede resolver (login, duda, error inesperado), pausa la prueba y le pregunta al usuario; retoma con la respuesta
       tech: ExecutionState (copia de SweepState) + POST /api/execute/answer y /login; un assert que falla NO pausa, es un resultado
       from: agent
       by: claude
@@ -69,7 +72,7 @@ links: [data]
       tech: routers/execute.py::_blocked_domain
       from: agent
 
-files: [backend/app/execution/, backend/app/routers/execute.py]
+files: [backend/app/execution/, backend/app/routers/execute.py, backend/app/live.py]
 
 ## Generar el reporte {#report}
 
@@ -90,30 +93,36 @@ files: [backend/app/routers/report.py, backend/app/diagnosis.py]
 needs: [chat]
 links: [runner, report]
 
-- [ ] Conectar GitHub o Bitbucket con un token sin que el modelo lo vea
+- [x] Conectar GitHub o Bitbucket con un token sin que el modelo lo vea
       tech: campo password en la UI -> POST /api/repo/credentials; repo/credentials.py guarda solo en memoria por sesion; el LLM solo ve "conectado"
       from: agent
-- [ ] Bajar una copia liviana del repo a una carpeta temporal por sesion y borrarla al terminar
+      by: claude
+- [x] Bajar una copia liviana del repo a una carpeta temporal por sesion y borrarla al terminar
       tech: git clone --depth 1 con validacion de dominio del proveedor (anti-SSRF)
       from: agent
-- [ ] Entender el repo: estructura, framework, rutas de la API y como se levanta
+      by: claude
+- [x] Entender el repo: estructura, framework, rutas de la API y como se levanta
       tech: repo/inspector.py, contenido del repo tratado como no confiable (wrap_untrusted)
       from: agent
+      by: claude
 
-files: [backend/app/repo/**, backend/app/routers/repo.py]
+files: [backend/app/repo/**, backend/app/routers/repo.py, frontend/src/components/RepoConnect.jsx]
 
 ## Levantar el repo de forma aislada {#runner}
 
 needs: [repo]
 links: [execution]
 
-- [ ] Levantar el repo en un contenedor desechable con limites y sin privilegios
+- [x] Levantar el repo en un contenedor desechable con limites y sin privilegios
       tech: servicio runner separado, API start/logs/stop, rootless, sin docker.sock en el backend
       from: agent
-- [ ] Usar `docker-compose.yml` o `Dockerfile` del repo; si no hay, avisar claro
+      by: claude
+- [x] Usar `docker-compose.yml` o `Dockerfile` del repo; si no hay, avisar claro
       from: agent
-- [ ] Generar valores dummy para los `.env`; nunca arrancar con un `.env` que no genero el runner
+      by: claude
+- [x] Generar valores dummy para los `.env`; nunca arrancar con un `.env` que no genero el runner
       from: agent
+      by: claude
 - [ ] Cortar la salida a internet de la app mientras se prueba
       tech: red `internal` + Playwright dentro de esa red; hacerlo al migrar a instancia
       from: roadmap
@@ -138,7 +147,7 @@ links: [chat, plan, execution, repo]
       tech: backend/app/security.py — redact() + wrap_untrusted(); todo lo que viene del repo, logs o pagina pasa por ahi
       from: agent
       by: claude
-- [~] Guardar donde quedo pausada una ejecucion para retomarla {#exec-state}
+- [x] Guardar donde quedo pausada una ejecucion para retomarla {#exec-state}
       tech: models/db.py::ExecutionState
       from: agent
       by: claude
@@ -165,12 +174,15 @@ needs: [chat, plan, execution, report]
 - [ ] Campo para conectar el token del repo, y mostrar el navegador en vivo con cuadro de respuesta cuando el agente pausa {#live-ui}
       tech: LivePanel (WS solo lectura, sin eventos de entrada), reutiliza UI de SweepPanel para preguntas/login
       from: agent
+- [x] Mostrar el navegador en vivo y el cuadro de respuesta cuando la ejecucion pausa
+      tech: components/LivePanel.jsx (img con el ultimo frame JPEG, clases sweep-*), api/client.js::openLiveSocket, proxy /ws en vite.config.js
+      by: claude
 - [ ] Recuperar plan/resultados al refrescar (hoy solo se recupera el historial de chat; no hay endpoint para pedir el ultimo plan sin regenerarlo)
       from: roadmap
 - [ ] Dashboard visual de resultados mas alla de una lista simple pass/fail
       from: roadmap
 
-files: [frontend/src/App.jsx, frontend/src/api/client.js, frontend/src/styles.css]
+files: [frontend/src/App.jsx, frontend/src/api/client.js, frontend/src/styles.css, frontend/src/components/LivePanel.jsx, frontend/vite.config.js]
 
 ## decisions
 
@@ -193,3 +205,4 @@ files: [frontend/src/App.jsx, frontend/src/api/client.js, frontend/src/styles.cs
 - Pausa en ejecucion solo por muro de login, app caida o duda real (con tope). Un assert que falla no pausa.
 - Vista en vivo: WebSocket `/ws/live/{session_id}` solo servidor->cliente, bus en memoria de un solo proceso, frames de CDP `Page.startScreencast`. El NDJSON de `/api/execute` sigue para resultados.
 - Trabajo en paralelo coordinado en `TRABAJO-PARALELO.md` (pistas 0/A/B/C/D con contratos congelados); PLAN.md sigue siendo la fuente de verdad del estado.
+- Vista en vivo (pista C): el frame se pinta en un `<img>` con el ultimo JPEG en vez de un canvas (mismo resultado, sin codigo de dibujo). La pausa se detecta en el runner y viaja como excepcion `ExecutionPaused`: app caida = `net::ERR_*` o `httpx.ConnectError`; login = la pagina del fallo tiene un password y el test no llena ninguno; duda = elemento no encontrado (nunca un assert), max 3 por ejecucion y nunca dos veces para el mismo caso. Al retomar tras un login, se loguea una vez en un context compartido por todos los casos.

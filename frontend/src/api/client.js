@@ -72,12 +72,40 @@ export async function executePlan(sessionId, onProgress) {
   }
 
   const results = [];
+  let paused = null;
+  // la ultima linea puede ser {"type": "paused"}: la pregunta la muestra LivePanel (llega por el WS).
   await readNdjson(response, (progress) => {
+    if (progress.type === 'paused') {
+      paused = progress;
+      return;
+    }
     results.push(progress.result);
     onProgress?.(progress);
   });
 
-  return { session_id: sessionId, results };
+  return { session_id: sessionId, results, paused };
+}
+
+export async function answerExecuteQuestion(sessionId, answer) {
+  return request('/execute/answer', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId, answer }),
+  });
+}
+
+export async function submitExecuteLogin(sessionId, username, password) {
+  return request('/execute/login', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId, username, password }),
+  });
+}
+
+// Solo lectura: el socket nunca manda nada al servidor.
+export function openLiveSocket(sessionId, onMessage) {
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const socket = new WebSocket(`${protocol}://${window.location.host}/ws/live/${sessionId}`);
+  socket.onmessage = (event) => onMessage(JSON.parse(event.data));
+  return socket;
 }
 
 export async function sweepPlan(sessionId, onEvent) {

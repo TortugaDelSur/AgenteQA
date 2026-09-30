@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   answerSweepQuestion, downloadReport, executePlan, getChatHistory, sendChat, submitSweepLogin, sweepPlan,
 } from './api/client';
+import LivePanel from './components/LivePanel';
 import RepoConnect from './components/RepoConnect';
 
 const welcomeMessage = {
@@ -402,6 +403,11 @@ export default function App() {
               loginRequired={sweepLoginRequired}
               onSubmitLogin={handleSubmitSweepLogin}
               isLoading={isLoading}
+            />
+
+            <LivePanel
+              sessionId={sessionId}
+              onProgress={(progress) => setResults((current) => [...(current || []), progress.result])}
             />
 
             {plan && (

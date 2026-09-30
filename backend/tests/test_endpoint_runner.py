@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 
 import httpx
+import pytest
 
+from app.execution import ExecutionPaused
 from app.execution.endpoint_runner import run_endpoint
 from app.models.schemas import TestCase
 
@@ -67,12 +69,23 @@ async def test_fail_lists_both_problems():
 
 async def test_error_when_request_raises():
     def handler(request):
-        raise httpx.ConnectError("connection refused")
+        raise httpx.ReadTimeout("timeout")
 
     result = await run_endpoint(_endpoint_case(), client=_client(handler))
 
     assert result.status == "error"
     assert "la request fallo" in result.detail
+
+
+async def test_pauses_when_app_is_unreachable():
+    # la app caida no es un fallo del test: el agente pausa y le pregunta al usuario.
+    def handler(request):
+        raise httpx.ConnectError("connection refused")
+
+    with pytest.raises(ExecutionPaused) as info:
+        await run_endpoint(_endpoint_case(), client=_client(handler))
+
+    assert info.value.reason == "unreachable"
 
 
 async def test_error_when_endpoint_case_has_no_request():

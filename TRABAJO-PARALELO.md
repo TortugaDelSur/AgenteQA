@@ -93,34 +93,37 @@ Archivos: `backend/app/security.py`, `backend/app/models/schemas.py`, `runner/RE
 
 ## Pista A: leer el repo
 
+Estado: hecha (claude). Extras fuera del contrato: `credentials.forget`, `repo/workspace.py` (clon por sesion; `workspace.repo_path(session_id)` es el `repo_path` para el runner) y `DELETE /api/repo/{session_id}`. El front usa `components/RepoConnect.jsx` (sin tocar `client.js` ni `styles.css`).
+
 Archivos: `backend/app/repo/**`, `backend/app/routers/repo.py`, `backend/app/main.py` (solo el include del router), `llm/prompts.py` (bloque del repo en chat)
-- [ ] `credentials.py` en memoria + `POST /api/repo/credentials` + `GET /api/repo/status`
-- [ ] `clone.py`: `--depth 1`, token por `GIT_CONFIG_*`, timeout. Test: el token nunca aparece en argv
-- [ ] `inspector.py`: framework, compose, servicios, puertos, claves de `.env.example`, rutas de la API
-- [ ] Chat usa `format_repo_summary` como contexto, junto a `page_snapshot`
-- [ ] Front: campo password del token más estado conectado (coordinar con C por `App.jsx`)
+- [x] `credentials.py` en memoria + `POST /api/repo/credentials` + `GET /api/repo/status`
+- [x] `clone.py`: `--depth 1`, token por `GIT_CONFIG_*`, timeout. Test: el token nunca aparece en argv
+- [x] `inspector.py`: framework, compose, servicios, puertos, claves de `.env.example`, rutas de la API
+- [x] Chat usa `format_repo_summary` como contexto, junto a `page_snapshot`
+- [x] Front: campo password del token más estado conectado (coordinar con C por `App.jsx`)
 
 ## Pista B: levantar el repo
 
+Estado: hecha (claude).
 Archivos: `runner/**`, `backend/app/runner_client.py`
-- [ ] Servicio FastAPI con los 3 endpoints del contrato
-- [ ] Override de compose generado: límites, `no-new-privileges`, puertos en 127.0.0.1
-- [ ] `.env` dummy desde `.env.example`; nunca usar un `.env` existente del repo
-- [ ] Detección de puerto web y healthcheck HTTP hasta que responda (con timeout)
-- [ ] Dockerfile sin compose: `docker build` + `docker run` con los mismos límites
-- [ ] `runner_client.py` (httpx) en el backend
-- [ ] Test con fixture mínimo (compose con nginx): sube, responde, logs, se destruye
+- [x] Servicio FastAPI con los 3 endpoints del contrato
+- [x] Override de compose generado: límites, `no-new-privileges`, puertos en 127.0.0.1
+- [x] `.env` dummy desde `.env.example`; nunca usar un `.env` existente del repo
+- [x] Detección de puerto web y healthcheck HTTP hasta que responda (con timeout)
+- [x] Dockerfile sin compose: `docker build` + `docker run` con los mismos límites
+- [x] `runner_client.py` (httpx) en el backend
+- [x] Test con fixture mínimo (compose con nginx): sube, responde, logs, se destruye
 
 ## Pista C: en vivo y pausa
 
-Estado: en curso (claude).
+Estado: hecha (claude). Tests: `test_execute_router.py`, `test_ui_runner.py`.
 Archivos: `backend/app/execution/**`, `backend/app/routers/execute.py`, `backend/app/live.py` (bus + WS), `models/db.py` (`ExecutionState`), `frontend/src/**`
-- [~] Browser compartido en `_execute_and_stream`, pasado a `run_ui(browser=...)`
-- [~] Bus en memoria + `/ws/live/{session_id}` (solo servidor a cliente)
-- [~] Screencast CDP publicando frames al bus; eventos `step` por paso
-- [~] `ExecutionState` + `/api/execute/answer` + `/api/execute/login`; retomar sin repetir casos
-- [~] Pausar solo por login, app inalcanzable o duda (con tope); un assert fallido no pausa
-- [~] Front: `LivePanel` (solo lectura) + cuadro de respuesta que reutiliza la UI de `SweepPanel`
+- [x] Browser compartido en `_execute_and_stream`, pasado a `run_ui(browser=...)`
+- [x] Bus en memoria + `/ws/live/{session_id}` (solo servidor a cliente)
+- [x] Screencast CDP publicando frames al bus; eventos `step` por paso
+- [x] `ExecutionState` + `/api/execute/answer` + `/api/execute/login`; retomar sin repetir casos
+- [x] Pausar solo por login, app inalcanzable o duda (con tope); un assert fallido no pausa
+- [x] Front: `LivePanel` (solo lectura) + cuadro de respuesta que reutiliza la UI de `SweepPanel`
 
 ## Pista D: causa probable (después de A y B)
 

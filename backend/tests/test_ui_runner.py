@@ -177,3 +177,108 @@ async def test_capture_screenshot_writes_under_session_dir(tmp_path, monkeypatch
 
     assert path == str(tmp_path / "s" / "TC-1.png")
     assert ("screenshot", path) in page.calls
+
+
+# --- pausa: login, app caida, duda; y eventos de la vista en vivo ---
+
+class PausePage(FakePage):
+    def __init__(self, html="", goto_error=None, **kwargs):
+        super().__init__(**kwargs)
+        self.html = html
+        self.goto_error = goto_error
+        self.url = "https://x.test/admin"
+
+    async def goto(self, url):
+        if self.goto_error:
+            raise RuntimeError(self.goto_error)
+        await super().goto(url)
+
+    async def click(self, selector):
+        raise TimeoutError(f"no encontre {selector}")
+
+    async def content(self):
+        return self.html
+
+
+async def test_run_ui_pauses_on_unexpected_login_wall():
+    page = PausePage(html='<input type="password" name="pw">')
+    case = _ui_case([UiStep(action="goto", url="https://x.test/admin"), UiStep(action="click", selector="#x")])
+
+    with pytest.raises(ui_runner.ExecutionPaused) as info:
+        await run_ui(case, "s", browser=FakeBrowser(page))
+
+    assert info.value.reason == "login"
+    assert info.value.detail == "https://x.test/admin"
+    assert page.closed is True
+
+
+async def test_run_ui_login_test_that_fails_is_a_result_not_a_pause(tmp_path, monkeypatch):
+    # el test mismo llena el password: si falla, es un fallo del login, no un muro inesperado.
+    monkeypatch.setattr(ui_runner, "SCREENSHOT_DIR", tmp_path)
+    page = PausePage(html='<input type="password" id="password">')
+    case = _ui_case([UiStep(action="fill", selector="#password", value="x"), UiStep(action="click", selector="#go")])
+
+    result = await run_ui(case, "s", browser=FakeBrowser(page))
+
+    assert result.status == "fail"
+
+
+async def test_run_ui_pauses_when_app_is_unreachable():
+    page = PausePage(goto_error="net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9")
+    case = _ui_case([UiStep(action="goto", url="http://127.0.0.1:9")])
+
+    with pytest.raises(ui_runner.ExecutionPaused) as info:
+        await run_ui(case, "s", browser=FakeBrowser(page))
+
+    assert info.value.reason == "unreachable"
+
+
+async def test_run_ui_asks_on_missing_element_but_never_on_failed_assert(tmp_path, monkeypatch):
+    monkeypatch.setattr(ui_runner, "SCREENSHOT_DIR", tmp_path)
+    asked = []
+
+    async def ask(url, elements):
+        asked.append(url)
+        return "¿el boton se llama distinto?"
+
+    page = PausePage(html='<button id="otro">Ir</button>', text_by_selector={"h1": "otra"})
+    with pytest.raises(ui_runner.ExecutionPaused) as info:
+        await run_ui(_ui_case([UiStep(action="click", selector="#go")]), "s", browser=FakeBrowser(page), ask=ask)
+    assert info.value.reason == "question"
+
+    result = await run_ui(
+        _ui_case([UiStep(action="assert_text", selector="h1", expected="hola")]), "s",
+        browser=FakeBrowser(page), ask=ask,
+    )
+    assert result.status == "fail"
+    assert asked == ["https://x.test/admin"]  # solo la primera vez
+
+
+async def test_run_ui_publishes_steps_and_screencast_frames(monkeypatch):
+    published = []
+    monkeypatch.setattr(ui_runner.live, "publish", lambda sid, msg: published.append((sid, msg)))
+
+    class FakeCdp:
+        def __init__(self):
+            self.handlers, self.sent = {}, []
+
+        def on(self, event, handler):
+            self.handlers[event] = handler
+
+        async def send(self, method, params):
+            self.sent.append(method)
+
+    cdp = FakeCdp()
+    page = FakePage()
+
+    async def new_cdp_session(p):
+        return cdp
+
+    page.context = types.SimpleNamespace(new_cdp_session=new_cdp_session)
+
+    await run_ui(_ui_case([UiStep(action="goto", url="https://x.test")]), "s", browser=FakeBrowser(page))
+    await cdp.handlers["Page.screencastFrame"]({"data": "JPEG", "sessionId": 7})
+
+    assert cdp.sent == ["Page.startScreencast", "Page.screencastFrameAck"]
+    assert ("s", {"type": "step", "test_case_id": "TC-UI", "index": 1, "action": "goto", "target": "https://x.test"}) in published
+    assert ("s", {"type": "frame", "data": "JPEG"}) in published
