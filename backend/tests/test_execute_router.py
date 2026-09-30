@@ -202,6 +202,24 @@ def test_execute_question_is_not_asked_again_for_the_answered_case(client, monke
     assert answers == ["¿que boton?", None]
 
 
+def test_execute_state_exposes_pending_pause_after_refresh(client, monkeypatch):
+    # tras refrescar, la UI no recibe la pausa por WS: sin este endpoint quedaria trabada en 409.
+    session_id = _session_with_plan(client, monkeypatch)
+    assert client.get(f"/api/execute/state/{session_id}").json() == {"paused": None}
+
+    async def fake_run_test_case(tc, sid, browser=None, ask=None):
+        raise ExecutionPaused("unreachable", "no se pudo conectar")
+
+    monkeypatch.setattr(execute_router, "run_test_case", fake_run_test_case)
+    client.post("/api/execute", json={"session_id": session_id})
+
+    assert client.get(f"/api/execute/state/{session_id}").json() == {
+        "paused": {"type": "paused", "reason": "unreachable", "detail": "no se pudo conectar"},
+    }
+    client.post("/api/execute/answer", json={"session_id": session_id, "answer": "ya la levante"})
+    assert client.get(f"/api/execute/state/{session_id}").json() == {"paused": None}
+
+
 def test_execute_login_pause_saves_credentials_and_logs_in_once_on_resume(client, monkeypatch):
     session_id = _session_with_plan(client, monkeypatch)
     logins = []

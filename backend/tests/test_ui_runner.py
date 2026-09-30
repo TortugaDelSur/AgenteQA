@@ -182,9 +182,10 @@ async def test_capture_screenshot_writes_under_session_dir(tmp_path, monkeypatch
 # --- pausa: login, app caida, duda; y eventos de la vista en vivo ---
 
 class PausePage(FakePage):
-    def __init__(self, html="", goto_error=None, **kwargs):
+    def __init__(self, html="", goto_error=None, password_filled=False, **kwargs):
         super().__init__(**kwargs)
         self.html = html
+        self.password_filled = password_filled
         self.goto_error = goto_error
         self.url = "https://x.test/admin"
 
@@ -198,6 +199,9 @@ class PausePage(FakePage):
 
     async def content(self):
         return self.html
+
+    async def evaluate(self, script):
+        return self.password_filled
 
 
 async def test_run_ui_pauses_on_unexpected_login_wall():
@@ -215,8 +219,9 @@ async def test_run_ui_pauses_on_unexpected_login_wall():
 async def test_run_ui_login_test_that_fails_is_a_result_not_a_pause(tmp_path, monkeypatch):
     # el test mismo llena el password: si falla, es un fallo del login, no un muro inesperado.
     monkeypatch.setattr(ui_runner, "SCREENSHOT_DIR", tmp_path)
-    page = PausePage(html='<input type="password" id="password">')
-    case = _ui_case([UiStep(action="fill", selector="#password", value="x"), UiStep(action="click", selector="#go")])
+    # selector sin "pass" a proposito: se mira si el campo password de la pagina tiene valor.
+    page = PausePage(html='<input type="password" id="pwd">', password_filled=True)
+    case = _ui_case([UiStep(action="fill", selector="#pwd", value="x"), UiStep(action="click", selector="#go")])
 
     result = await run_ui(case, "s", browser=FakeBrowser(page))
 

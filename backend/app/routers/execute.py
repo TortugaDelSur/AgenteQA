@@ -177,6 +177,16 @@ async def post_execute(req: PlanRequest, db: OrmSession = Depends(get_db)) -> St
     )
 
 
+@router.get("/api/execute/state/{session_id}")
+async def get_execute_state(session_id: str, db: OrmSession = Depends(get_db)) -> dict:
+    """Pausa pendiente, si la hay. La pausa llega en vivo por WS/NDJSON; esto es para despues de
+    refrescar la pagina, si no la UI no la mostraria y POST /api/execute quedaria en 409 para siempre."""
+    state = db.get(ExecutionState, session_id)
+    if state is None or not state.paused_reason:
+        return {"paused": None}
+    return {"paused": {"type": "paused", "reason": state.paused_reason, "detail": state.paused_detail}}
+
+
 @router.post("/api/execute/answer")
 async def post_execute_answer(req: SweepAnswerRequest, db: OrmSession = Depends(get_db)) -> dict:
     state = db.get(ExecutionState, req.session_id)

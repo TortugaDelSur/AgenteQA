@@ -18,7 +18,7 @@ URL = "https://github.com/acme/app"
 @pytest.fixture(autouse=True)
 def _clean_state():
     yield
-    for sid in {sid for sid, _ in credentials._tokens} | set(workspace._clones):
+    for sid in {sid for sid, _ in credentials._tokens} | set(workspace._clones) | set(workspace._failed):
         credentials.forget(sid)
         workspace.forget(sid)
 
@@ -234,15 +234,24 @@ def test_repo_context_clones_once_and_reclones_on_new_url(monkeypatch):
 
 
 def test_repo_context_clone_failure(monkeypatch):
+    attempts = []
+
     def boom(url, dest, token):
+        attempts.append(token)
         raise CloneError("nope")
     monkeypatch.setattr(workspace, "clone", boom)
     out = workspace.repo_context("s", URL)
     assert "No se pudo clonar" in out and "Conectar repo" in out and "no conectado" in out
     assert workspace.repo_path("s") is None
 
+    # mismo url + token: no se reintenta en cada turno (cada intento puede bloquear 120s).
+    assert "No se pudo clonar" in workspace.repo_context("s", URL)
+    assert attempts == [None]
+
+    # token nuevo: si se reintenta.
     credentials.set_token("s", "github", TOKEN)
     assert "Conectar repo" not in workspace.repo_context("s", URL)
+    assert attempts == [None, TOKEN]
 
 
 # --- router + chat ---

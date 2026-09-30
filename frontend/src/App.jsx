@@ -288,7 +288,12 @@ export default function App() {
         setExecutionProgress({ index: progress.index, total: progress.total });
         setResults((current) => [...current, progress.result]);
       });
-      appendMessage('assistant', `Ejecución completada: ${data.results.length} casos procesados.`);
+      appendMessage(
+        'assistant',
+        data.paused
+          ? `Ejecución pausada tras ${data.results.length} casos: necesito tu respuesta para seguir.`
+          : `Ejecución completada: ${data.results.length} casos procesados.`,
+      );
     } catch (err) {
       setError(err.message || 'No se pudo ejecutar el plan');
     } finally {

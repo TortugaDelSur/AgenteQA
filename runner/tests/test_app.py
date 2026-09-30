@@ -8,6 +8,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import app as runner
@@ -48,6 +49,11 @@ def test_rejects_bad_session_and_run_id(client, tmp_path):
     assert client.delete("/runs/--help", headers=HEADERS).status_code == 404
 
 
+@needs_docker
+def test_logs_of_unknown_run_is_404(client):
+    assert client.get("/runs/aqa-no-existe-xyz/logs", headers=HEADERS).status_code == 404
+
+
 def test_dummy_env_never_keeps_real_values(tmp_path):
     (tmp_path / ".env.example").write_text("# c\nexport A=\nB=3000\nnada\n")
     (tmp_path / ".env").write_text("A=real\n")
@@ -82,6 +88,30 @@ def test_harden_limits_ports_and_host_access(tmp_path):
     assert not {"cap_add", "network_mode", "deploy"} & svc.keys()
     assert svc["ports"] == [{"target": 80, "host_ip": "127.0.0.1", "protocol": "tcp"}]
     assert [v["target"] for v in svc["volumes"]] == ["/src", "/data"]
+
+
+def test_harden_rejects_host_files_via_configs_secrets_and_build(tmp_path):
+    for bad in (
+        {"configs": {"c": {"file": "/etc/hostname"}}, "services": {}},
+        {"secrets": {"s": {"file": "/etc/passwd"}}, "services": {}},
+        {"services": {"web": {"build": {"context": str(tmp_path.parent)}}}},
+    ):
+        with pytest.raises(HTTPException) as err:
+            runner.harden(bad, tmp_path)
+        assert err.value.status_code == 422
+
+
+def test_harden_neutralizes_volume_binds_and_extra_build_contexts(tmp_path):
+    (tmp_path / "s.txt").write_text("x")
+    config = {
+        "secrets": {"ok": {"file": str(tmp_path / "s.txt")}},
+        "volumes": {"v": {"name": "fijo", "external": True,
+                          "driver_opts": {"type": "none", "o": "bind", "device": "/home"}}},
+        "services": {"web": {"build": {"context": str(tmp_path), "additional_contexts": {"x": "/etc"}}}},
+    }
+    out = runner.harden(config, tmp_path)
+    assert out["volumes"] == {"v": {}}
+    assert "additional_contexts" not in out["services"]["web"]["build"]
 
 
 def test_dockerfile_expose_parsing(tmp_path):

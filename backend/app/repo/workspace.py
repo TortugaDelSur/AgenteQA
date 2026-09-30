@@ -16,6 +16,9 @@ from app.repo.inspector import format_repo_summary, inspect_repo
 # ponytail: cache en memoria de un solo proceso; dos turnos simultaneos de la misma sesion
 # podrian clonar dos veces (el segundo pisa al primero y la carpeta vieja queda hasta atexit).
 _clones: dict[str, tuple[str, Path, RepoInfo]] = {}
+# ultimo (url, token) que fallo por sesion: no se reintenta en cada turno del chat (cada intento
+# puede bloquear hasta CLONE_TIMEOUT_S); se reintenta solo si cambia la URL o el token.
+_failed: dict[str, tuple[str, str | None]] = {}
 
 
 def repo_path(session_id: str) -> Path | None:
@@ -24,6 +27,7 @@ def repo_path(session_id: str) -> Path | None:
 
 
 def forget(session_id: str) -> None:
+    _failed.pop(session_id, None)
     entry = _clones.pop(session_id, None)
     if entry:
         shutil.rmtree(entry[1].parent, ignore_errors=True)
@@ -35,15 +39,19 @@ def repo_context(session_id: str, repo_url: str) -> str:
     connected = credentials.status(session_id).get(provider, False)
     header = f"Repo {repo_url} ({provider}). Token: {'conectado' if connected else 'no conectado'}."
 
+    hint = "" if connected else " Si es privado, pedile al usuario que cargue el token en \"Conectar repo\"."
+    token = credentials.get_token(session_id, provider)
     entry = _clones.get(session_id)
     if entry is None or entry[0] != repo_url:
+        if _failed.get(session_id) == (repo_url, token):
+            return f"{header} No se pudo clonar.{hint}"
         forget(session_id)
         workdir = Path(tempfile.mkdtemp(prefix="aqa-repo-"))
         try:
-            dest = clone(repo_url, workdir / "repo", credentials.get_token(session_id, provider))
+            dest = clone(repo_url, workdir / "repo", token)
         except CloneError:
             shutil.rmtree(workdir, ignore_errors=True)
-            hint = "" if connected else " Si es privado, pedile al usuario que cargue el token en \"Conectar repo\"."
+            _failed[session_id] = (repo_url, token)
             return f"{header} No se pudo clonar.{hint}"
         entry = (repo_url, dest, inspect_repo(dest))
         _clones[session_id] = entry

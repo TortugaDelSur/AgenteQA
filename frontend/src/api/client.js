@@ -86,6 +86,10 @@ export async function executePlan(sessionId, onProgress) {
   return { session_id: sessionId, results, paused };
 }
 
+export async function getExecuteState(sessionId) {
+  return request(`/execute/state/${sessionId}`);
+}
+
 export async function answerExecuteQuestion(sessionId, answer) {
   return request('/execute/answer', {
     method: 'POST',

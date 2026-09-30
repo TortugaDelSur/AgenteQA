@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  answerExecuteQuestion, executePlan, openLiveSocket, submitExecuteLogin,
+  answerExecuteQuestion, executePlan, getExecuteState, openLiveSocket, submitExecuteLogin,
 } from '../api/client';
 
 const PAUSE_TEXT = {
@@ -20,6 +20,12 @@ export default function LivePanel({ sessionId, onProgress }) {
   const [loginPass, setLoginPass] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  // tras refrescar, la pausa ya no llega por el WS: se pide al backend.
+  useEffect(() => {
+    if (!sessionId) return;
+    getExecuteState(sessionId).then((data) => data.paused && setPaused(data.paused)).catch(() => {});
+  }, [sessionId]);
 
   useEffect(() => {
     if (!sessionId) return undefined;

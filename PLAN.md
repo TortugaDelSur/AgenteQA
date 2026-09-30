@@ -68,9 +68,15 @@ links: [data]
       tech: ExecutionState (copia de SweepState) + POST /api/execute/answer y /login; un assert que falla NO pausa, es un resultado
       from: agent
       by: claude
-- [ ] Permitir que el dominio confirmado sea el del repo levantado (url interna del contenedor)
-      tech: routers/execute.py::_blocked_domain
+- [ ] Levantar el repo antes del barrido, probar contra su URL local y apagarlo al terminar {#wire-runner}
+      tech: runner_client.start_run -> target_url = URL local (si hay varias, pausa y pregunta cual); stop_run al terminar; _blocked_domain ya compara contra target_url
       from: agent
+- [x] Tras refrescar la pagina, la pausa pendiente sigue visible y se puede responder
+      tech: GET /api/execute/state/{session_id}; LivePanel lo consulta al montarse
+      by: claude
+- [x] Detectar muro de login mirando si el password de la pagina ya tiene valor, no por el nombre del selector
+      tech: ui_runner._password_filled (page.evaluate)
+      by: claude
 
 files: [backend/app/execution/, backend/app/routers/execute.py, backend/app/live.py]
 
@@ -123,6 +129,9 @@ links: [execution]
 - [x] Generar valores dummy para los `.env`; nunca arrancar con un `.env` que no genero el runner
       from: agent
       by: claude
+- [x] Impedir que el compose del repo lea archivos de la maquina (configs/secrets con file, volumenes bind disfrazados, build fuera del repo)
+      tech: runner/app.py::harden -> 422; volumenes quedan vacios del run; additional_contexts se quitan
+      by: claude
 - [ ] Cortar la salida a internet de la app mientras se prueba
       tech: red `internal` + Playwright dentro de esa red; hacerlo al migrar a instancia
       from: roadmap
@@ -152,6 +161,9 @@ links: [chat, plan, execution, repo]
       from: agent
       by: claude
 - [ ] Autenticacion multi-usuario
+      from: roadmap
+- [ ] Proteger la vista en vivo y la API al pasar a instancia (WebSocket sin auth y CORS `*` hoy)
+      tech: /ws/live/{session_id} solo pide el session_id; main.py allow_origins=["*"]
       from: roadmap
 
 files: [backend/app/models/db.py, backend/app/models/schemas.py, backend/app/security.py]
@@ -206,3 +218,7 @@ files: [frontend/src/App.jsx, frontend/src/api/client.js, frontend/src/styles.cs
 - Vista en vivo: WebSocket `/ws/live/{session_id}` solo servidor->cliente, bus en memoria de un solo proceso, frames de CDP `Page.startScreencast`. El NDJSON de `/api/execute` sigue para resultados.
 - Trabajo en paralelo coordinado en `TRABAJO-PARALELO.md` (pistas 0/A/B/C/D con contratos congelados); PLAN.md sigue siendo la fuente de verdad del estado.
 - Vista en vivo (pista C): el frame se pinta en un `<img>` con el ultimo JPEG en vez de un canvas (mismo resultado, sin codigo de dibujo). La pausa se detecta en el runner y viaja como excepcion `ExecutionPaused`: app caida = `net::ERR_*` o `httpx.ConnectError`; login = la pagina del fallo tiene un password y el test no llena ninguno; duda = elemento no encontrado (nunca un assert), max 3 por ejecucion y nunca dos veces para el mismo caso. Al retomar tras un login, se loguea una vez en un context compartido por todos los casos.
+- Integracion (2026-09-30): las 3 sesiones paralelas escribieron en la carpeta principal en vez de sus worktrees; se commitearon por separado (B, A, C) en `feature/vision-ejecucion` y se borraron los worktrees. Para la proxima tanda en paralelo, abrir cada sesion desde su carpeta de worktree.
+- Runner sin usuario no root forzado: forzar `user:` rompe muchas imagenes. Se compensa con `no-new-privileges`, sin `cap_add`/`privileged` y sin accesos al host. `env_file` fuera del repo no se puede frenar (compose ya lo inlinea); aceptado con repos de la empresa.
+- Nadie tomo la decision "la URL del repo levantado reemplaza a target_url": pasa a ser la primera tarea de la pista D (`{#wire-runner}`), porque la causa probable necesita un run activo del que leer logs.
+- Vista en vivo y API sin autenticacion en local (WS por session_id, CORS `*`): aceptado para local, tarea de roadmap antes de la instancia.

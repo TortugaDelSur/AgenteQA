@@ -94,6 +94,18 @@ async def _start_screencast(page, session_id: str) -> None:
         pass
 
 
+async def _password_filled(page) -> bool:
+    """True si algun input password de la pagina ya tiene valor: el test mismo esta logueandose,
+    asi que una falla ahi es un resultado, no un muro inesperado. Mira la pagina real en vez de
+    adivinar por el selector (`#pwd`, `#clave` no dicen "pass")."""
+    try:
+        return bool(await page.evaluate(
+            "() => [...document.querySelectorAll('input[type=password]')].some(i => i.value)"
+        ))
+    except Exception:
+        return False
+
+
 async def _check_pause(page, tc: TestCase, exc: Exception, ask: AskFn | None) -> ExecutionPaused | None:
     """Decide si una falla es algo que el agente no puede resolver solo.
 
@@ -107,8 +119,7 @@ async def _check_pause(page, tc: TestCase, exc: Exception, ask: AskFn | None) ->
         url = page.url
     except Exception:
         return None
-    fills_password = any(s.action == "fill" and "pass" in (s.selector or "").lower() for s in tc.steps or [])
-    if 'type="password"' in elements and not fills_password:
+    if 'type="password"' in elements and not await _password_filled(page):
         return ExecutionPaused("login", url)
     if ask and not isinstance(exc, AssertionError) and elements:
         question = await ask(url, elements)

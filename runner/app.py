@@ -107,13 +107,37 @@ def _load_config(repo: Path, run_id: str) -> dict:
     raise HTTPException(422, "sin docker-compose.yml ni Dockerfile")
 
 
+def _inside(path: str, repo: Path) -> bool:
+    return Path(path).resolve().is_relative_to(repo)
+
+
 def harden(config: dict, repo: Path) -> dict:
-    """Aplica limites y cierra las salidas del compose del repo hacia el host."""
+    """Aplica limites y cierra las salidas del compose del repo hacia el host.
+
+    ponytail: `env_file` fuera del repo no se puede frenar aca: `docker compose config` ya lo
+    inlineo en `environment`. Con repos propios de la empresa se acepta; si se abren a terceros,
+    validar el YAML crudo antes de `config`.
+    """
     config.pop("name", None)  # el nombre lo pone `-p run_id`
     for net in config.get("networks", {}).values():
         if isinstance(net, dict):
             net.pop("name", None)  # un nombre fijo compartiria la red entre runs
-    for svc in config.get("services", {}).values():
+    # configs/secrets con `file:` fuera del repo montarian archivos del host (ej. /etc/passwd).
+    for kind in ("configs", "secrets"):
+        for name, item in config.get(kind, {}).items():
+            if isinstance(item, dict) and item.get("file") and not _inside(item["file"], repo):
+                raise HTTPException(422, f"{kind}.{name} lee un archivo fuera del repo")
+    # volumenes: nada de driver_opts (un bind a /home disfrazado de volumen), external ni nombre
+    # fijo; quedan como volumenes vacios propios del run.
+    for name in list(config.get("volumes", {})):
+        config["volumes"][name] = {}
+    for name, svc in config.get("services", {}).items():
+        build = svc.get("build")
+        if isinstance(build, dict):
+            # un context fuera del repo (o una URL) mete archivos del host en la imagen.
+            if not _inside(str(build.get("context", repo)), repo):
+                raise HTTPException(422, f"services.{name}.build.context apunta fuera del repo")
+            build.pop("additional_contexts", None)
         svc.update(LIMITS)
         # deploy.resources chocaria con mem_limit/cpus
         for key in ("cap_add", "devices", "pid", "ipc", "userns_mode", "container_name", "deploy"):
@@ -210,9 +234,17 @@ def start_run(req: RunRequest) -> dict:
     return {"run_id": run_id, "urls": urls}
 
 
+def _exists(run_id: str) -> str:
+    """run_id valido Y con contenedores; si no, 404 (antes un run inexistente daba 500)."""
+    _valid_run_id(run_id)
+    if not _docker("ps", "-aq", "--filter", f"label=com.docker.compose.project={run_id}", timeout=30).strip():
+        raise HTTPException(404, "run inexistente")
+    return run_id
+
+
 @app.get("/runs/{run_id}/logs", dependencies=[Depends(_check_token)])
 def run_logs(run_id: str, tail: int = 200) -> dict:
-    out = _docker("compose", "-p", _valid_run_id(run_id), "logs", "--no-color",
+    out = _docker("compose", "-p", _exists(run_id), "logs", "--no-color",
                   "--tail", str(max(1, min(tail, 5000))), timeout=60)
     return {"logs": out}
 
