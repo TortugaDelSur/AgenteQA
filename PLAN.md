@@ -12,6 +12,10 @@ Agente QA conversacional: charla para juntar contexto, arma un plan de pruebas, 
       tech: llm/prompts.py::CHAT_SYSTEM_PROMPT (bloque "Sugerencia de paginas")
 - [x] Filtro duro de `extra_urls` (mismo dominio, cap 8) — no depende de que el LLM se porte bien
       tech: models/schemas.py::ContextProgress._sanitize_extra_urls
+- [x] Pedir la URL del repo y aceptar solo GitHub o Bitbucket {#repo-url}
+      tech: ContextProgress.repo_url + filtro duro de host, mismo estilo que _sanitize_extra_urls
+      from: agent
+      by: claude
 
 files: [backend/app/routers/chat.py, backend/app/llm/prompts.py, backend/app/models/schemas.py]
 
@@ -33,8 +37,6 @@ links: [data]
 - [x] Pausa dura si se topa con un muro de login no anticipado (o credenciales ya conocidas que fallan), pide credenciales de prueba y retoma sin revisitar lo ya andado
       tech: routers/plan.py::post_plan_sweep_login, _looks_like_login, models/schemas.py::SweepLoginRequest
       by: claude
-- [ ] Analisis/testing directo del repositorio de codigo (clonar, correr tests existentes)
-      from: roadmap
 
 files: [backend/app/routers/plan.py, backend/app/llm/screen_sweeper.py, backend/app/llm/page_inspector.py, backend/app/llm/authenticated_inspector.py]
 
@@ -51,6 +53,21 @@ links: [data]
       tech: routers/execute.py::_execute_and_stream
 - [x] Bloqueo duro de dominio: un test case que apunte fuera del dominio confirmado no se ejecuta, aunque el prompt del plan lo hubiera dejado pasar
       tech: routers/execute.py::_blocked_domain
+- [~] Usar un solo navegador para toda la ejecucion (requisito de la vista en vivo) {#shared-browser}
+      tech: _execute_and_stream abre el browser y lo pasa a run_ui(browser=...)
+      from: agent
+      by: claude
+- [~] Ver el navegador en vivo mientras corre cada prueba, solo lectura: el usuario mira, no puede hacer clic ni escribir
+      tech: Playwright CDP `Page.startScreencast`, WebSocket en FastAPI (solo servidor a cliente, sin eventos de entrada), canvas en el front
+      from: agent
+      by: claude
+- [~] Si el agente se topa con algo que no puede resolver (login, duda, error inesperado), pausa la prueba y le pregunta al usuario; retoma con la respuesta
+      tech: ExecutionState (copia de SweepState) + POST /api/execute/answer y /login; un assert que falla NO pausa, es un resultado
+      from: agent
+      by: claude
+- [ ] Permitir que el dominio confirmado sea el del repo levantado (url interna del contenedor)
+      tech: routers/execute.py::_blocked_domain
+      from: agent
 
 files: [backend/app/execution/, backend/app/routers/execute.py]
 
@@ -62,12 +79,50 @@ needs: [execution]
       tech: llm/client.py::generate_report, llm/prompts.py::REPORT_SYSTEM_PROMPT
 - [x] Exporta tambien en HTML (`?format=html`, tabla de resultados)
       tech: routers/report.py (param `format`, lib `markdown`)
+- [ ] Senalar la posible causa de cada fallo (archivo y linea del repo) con su nivel de confianza
+      tech: backend/app/diagnosis.py — logs del runner + detalle del test + grep en el repo; TestResult.suspected_cause; redacta secretos antes
+      from: agent
 
-files: [backend/app/routers/report.py]
+files: [backend/app/routers/report.py, backend/app/diagnosis.py]
+
+## Leer el repo de la empresa {#repo}
+
+needs: [chat]
+links: [runner, report]
+
+- [ ] Conectar GitHub o Bitbucket con un token sin que el modelo lo vea
+      tech: campo password en la UI -> POST /api/repo/credentials; repo/credentials.py guarda solo en memoria por sesion; el LLM solo ve "conectado"
+      from: agent
+- [ ] Bajar una copia liviana del repo a una carpeta temporal por sesion y borrarla al terminar
+      tech: git clone --depth 1 con validacion de dominio del proveedor (anti-SSRF)
+      from: agent
+- [ ] Entender el repo: estructura, framework, rutas de la API y como se levanta
+      tech: repo/inspector.py, contenido del repo tratado como no confiable (wrap_untrusted)
+      from: agent
+
+files: [backend/app/repo/**, backend/app/routers/repo.py]
+
+## Levantar el repo de forma aislada {#runner}
+
+needs: [repo]
+links: [execution]
+
+- [ ] Levantar el repo en un contenedor desechable con limites y sin privilegios
+      tech: servicio runner separado, API start/logs/stop, rootless, sin docker.sock en el backend
+      from: agent
+- [ ] Usar `docker-compose.yml` o `Dockerfile` del repo; si no hay, avisar claro
+      from: agent
+- [ ] Generar valores dummy para los `.env`; nunca arrancar con un `.env` que no genero el runner
+      from: agent
+- [ ] Cortar la salida a internet de la app mientras se prueba
+      tech: red `internal` + Playwright dentro de esa red; hacerlo al migrar a instancia
+      from: roadmap
+
+files: [runner/**, backend/app/runner_client.py]
 
 ## Datos y contrato compartido {#data}
 
-links: [chat, plan, execution]
+links: [chat, plan, execution, repo]
 
 - [x] Persistencia SQLite: sesiones, historial de mensajes, planes, resultados
       tech: models/db.py (Session, Message, Plan, Result)
@@ -79,10 +134,18 @@ links: [chat, plan, execution]
 - [x] Migracion liviana automatica: agrega columnas nuevas a tablas SQLite existentes al arrancar (create_all nunca altera tablas ya creadas)
       tech: models/db.py::_add_missing_columns, init_db
       by: claude
+- [x] Ocultar secretos antes de hablar con el modelo {#redact}
+      tech: backend/app/security.py — redact() + wrap_untrusted(); todo lo que viene del repo, logs o pagina pasa por ahi
+      from: agent
+      by: claude
+- [~] Guardar donde quedo pausada una ejecucion para retomarla {#exec-state}
+      tech: models/db.py::ExecutionState
+      from: agent
+      by: claude
 - [ ] Autenticacion multi-usuario
       from: roadmap
 
-files: [backend/app/models/db.py, backend/app/models/schemas.py]
+files: [backend/app/models/db.py, backend/app/models/schemas.py, backend/app/security.py]
 
 ## Frontend: chat, plan, ejecucion y reporte en una sola vista {#frontend}
 
@@ -99,6 +162,9 @@ needs: [chat, plan, execution, report]
       tech: api/client.js::downloadReport
 - [x] Recupera el historial de chat al refrescar (via `session_id` en localStorage)
       tech: App.jsx (useEffect inicial + getChatHistory)
+- [ ] Campo para conectar el token del repo, y mostrar el navegador en vivo con cuadro de respuesta cuando el agente pausa {#live-ui}
+      tech: LivePanel (WS solo lectura, sin eventos de entrada), reutiliza UI de SweepPanel para preguntas/login
+      from: agent
 - [ ] Recuperar plan/resultados al refrescar (hoy solo se recupera el historial de chat; no hay endpoint para pedir el ultimo plan sin regenerarlo)
       from: roadmap
 - [ ] Dashboard visual de resultados mas alla de una lista simple pass/fail
@@ -112,3 +178,18 @@ files: [frontend/src/App.jsx, frontend/src/api/client.js, frontend/src/styles.cs
 - 6 componentes elegidos: `chat`/`plan`/`execution`/`report` siguen el pipeline de 4 pasos del producto; `data` se separó porque es un contrato compartido activo (creció con `SweepState` esta misma sesión, no es plumbing estable); `frontend` es un solo componente porque hoy es un unico archivo (`App.jsx`) sin sub-partes independientes.
 - Los 3 items "fuera de alcance fase 2" del plan de diseño original (analisis de repo, auth multi-usuario, dashboard visual) se migraron como tareas `from: roadmap` en el componente que mas de cerca les corresponde, en vez de quedar en una lista aparte.
 - Todo lo marcado `[x]` se verifico contra el codigo actual (no contra la Bitacora ni el README) durante esta sesion; ningun estado se tomo prestado de la prosa sin confirmar la funcion/archivo citado en `tech:`.
+- Nueva necesidad (2026-09-30): el agente debe leer un repo de la empresa (GitHub/Bitbucket por token), levantarlo localmente y probarlo, y si algo falla senalar donde esta el problema. Se evaluaron `agent-toolkit` y `ai-factory-agents/qa-agent` como base: ninguno se adopta. Del primero se toma solo el patron de sandbox (sin docker.sock, efectos reales con aprobacion humana); del segundo `wrap_untrusted` (prompt guardrail) y `qa_json_repair`, reescritos aqui, sin depender de `shared/`.
+- 2 componentes nuevos, `repo` y `runner`: son partes durables (`runner` necesita `repo`, borrarlos cambia lo que hace el producto, cada uno tiene mas de una tarea previsible y files propios). La vista en vivo y el diagnostico de causa NO son componentes: son tareas bajo `execution` y `report`, porque tocan los archivos de esos.
+- Alcance: repos propios de la empresa (confiables), despliegue local primero y a una instancia despues. Aun asi el repo corre aislado: contenedor efimero, no root, con limites, y un servicio runner separado; el backend nunca monta `docker.sock`.
+- Secretos: el token del proveedor y los secretos del repo nunca pasan por el LLM ni por logs. El LLM solo ve nombres (`GITHUB_TOKEN: configurado`). Los `.env` del repo se levantan con valores dummy; un secreto real solo se inyecta como variable del contenedor, nunca como texto en un prompt.
+- MVP de `runner`: solo repos con `docker-compose.yml` o `Dockerfile`. Sin eso falla con mensaje claro en vez de adivinar. Para repos sin Docker, una receta propuesta por el LLM exige aprobacion del usuario antes de correr.
+- Vista en vivo: screencast CDP de Playwright (`Page.startScreencast`) por WebSocket, pintado en canvas. Reemplaza las capturas sueltas en la pantalla de ejecucion; el NDJSON queda para eventos de texto.
+- Vista en vivo de solo lectura: el usuario no controla el navegador. La unica interaccion es responder cuando el agente pausa por si mismo (duda, login, error). Reutiliza la mecanica de pausa del barrido, no se crea una nueva.
+- Token (2026-09-30, confirmado por el owner): se ingresa en un campo de la UI, fuera del chat; el backend lo guarda solo en memoria por sesion (se pierde al reiniciar y la UI lo vuelve a pedir). Git lo recibe por variables de entorno (`GIT_CONFIG_*`, `http.extraHeader`), nunca en la URL, argv ni `.git/config`. Reemplaza la opcion `.env` mencionada antes.
+- Redaccion centralizada en `backend/app/security.py`: `redact()` enmascara secretos conocidos y patrones (ghp_, github_pat_, Bearer, x-token-auth:), `wrap_untrusted()` marca contenido ajeno. Vive en `data` porque la usan repo, runner, reporte y chat.
+- Runner: servicio aparte (`runner/`, FastAPI) que es el unico que toca Docker; el backend le habla por HTTP con token interno. `docker compose -p aqa-<sesion>` + override generado con limites de memoria/CPU/procesos, `no-new-privileges` y puertos solo en 127.0.0.1.
+- Red abierta en el MVP (confirmado por el owner): la app probada puede salir a internet, mitigado con `.env` dummy obligatorio. Cortarla exige red `internal` y Playwright dentro de ella; queda como roadmap para la instancia.
+- Con repo levantado, su URL local reemplaza a `target_url`: barrido, bloqueo de dominio y ejecucion no cambian. Si el compose publica varios puertos web, el agente pausa y pregunta cual es la app.
+- Pausa en ejecucion solo por muro de login, app caida o duda real (con tope). Un assert que falla no pausa.
+- Vista en vivo: WebSocket `/ws/live/{session_id}` solo servidor->cliente, bus en memoria de un solo proceso, frames de CDP `Page.startScreencast`. El NDJSON de `/api/execute` sigue para resultados.
+- Trabajo en paralelo coordinado en `TRABAJO-PARALELO.md` (pistas 0/A/B/C/D con contratos congelados); PLAN.md sigue siendo la fuente de verdad del estado.

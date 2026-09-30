@@ -5,6 +5,21 @@ from pydantic import BaseModel, Field, model_validator
 
 MAX_EXTRA_URLS = 8
 
+REPO_HOSTS = {"github.com": "github", "bitbucket.org": "bitbucket"}
+
+
+def repo_provider(repo_url: str) -> Literal["github", "bitbucket"] | None:
+    """Proveedor del repo si la URL es https a un host permitido y sin user:pass@; si no, None."""
+    parsed = urlparse(repo_url.strip())
+    try:
+        has_port = parsed.port is not None
+    except ValueError:  # puerto no numerico ("host:abc")
+        return None
+    owner_and_repo = [part for part in parsed.path.split("/") if part]
+    if parsed.scheme != "https" or parsed.username or parsed.password or has_port or len(owner_and_repo) < 2:
+        return None
+    return REPO_HOSTS.get((parsed.hostname or "").lower())  # type: ignore[return-value]
+
 
 class ContextProgress(BaseModel):
     objetivo: bool = False
@@ -17,6 +32,8 @@ class ContextProgress(BaseModel):
     password: str | None = None
     # paginas extra mencionadas por el usuario en el alcance (post-login), si dio URLs concretas.
     extra_urls: list[str] = []
+    # repo de la empresa a clonar/levantar. Solo hosts de REPO_HOSTS (filtro duro abajo).
+    repo_url: str | None = None
 
     @property
     def ready_for_plan(self) -> bool:
@@ -45,6 +62,14 @@ class ContextProgress(BaseModel):
             if len(sanitized) >= MAX_EXTRA_URLS:
                 break
         self.extra_urls = sanitized
+        return self
+
+    @model_validator(mode="after")
+    def _sanitize_repo_url(self) -> "ContextProgress":
+        """Filtro duro: solo https a GitHub/Bitbucket, sin credenciales embebidas. El clone usa
+        esta URL tal cual; aceptar cualquier host seria un SSRF (clonar desde la red interna)."""
+        if self.repo_url is not None and repo_provider(self.repo_url) is None:
+            self.repo_url = None
         return self
 
 
@@ -120,6 +145,32 @@ class SweepLoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
+# --- Repo de la empresa (ver TRABAJO-PARALELO.md, contratos congelados) ---
+
+class RepoInfo(BaseModel):
+    framework: str | None = None
+    has_compose: bool = False
+    has_dockerfile: bool = False
+    services: list[str] = []
+    ports: list[int] = []
+    # solo los NOMBRES de las variables de .env.example, nunca valores.
+    env_example_keys: list[str] = []
+    api_routes: list[str] = []
+
+
+class RepoCredentialsRequest(BaseModel):
+    session_id: str
+    provider: Literal["github", "bitbucket"]
+    token: str = Field(min_length=1, max_length=500)
+
+
+class SuspectedCause(BaseModel):
+    file: str
+    line: int | None = None
+    explanation: str
+    confidence: Literal["alta", "media", "baja"]
+
+
 # --- Resultados de ejecucion (contrato compartido con Persona B) ---
 
 class TestResult(BaseModel):
@@ -131,6 +182,8 @@ class TestResult(BaseModel):
     # la muestre en vivo mientras ejecuta. No se persiste en DB (execute.py arma el Result
     # campo por campo, este no esta entre ellos) — es solo para la corrida en curso.
     screenshot_b64: str | None = None
+    # solo si hay repo levantado y el test fallo: donde esta probablemente el problema.
+    suspected_cause: SuspectedCause | None = None
 
 
 class ExecutionResponse(BaseModel):

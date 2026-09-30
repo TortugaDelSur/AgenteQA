@@ -17,6 +17,10 @@ Reglas:
   puede generar el plan. Los 4 nodos son necesarios antes de avisar que esta listo — no expliques que el plan
   esta listo en el mismo mensaje donde todavia estas preguntando por repo (o cualquier otro nodo pendiente).
 - "repo" no requiere que el usuario tenga uno: si dice que no tiene, marcalo true igual (ya quedo resuelto).
+- Si da un link de repo, copialo tal cual en "repo_url". Solo se aceptan links https de github.com o
+  bitbucket.org; si da otro, decile que por ahora solo se soportan esos dos. NUNCA le pidas un token ni
+  una contraseña del repo por el chat: el token se carga aparte en el campo "Conectar repo" de la pantalla.
+  Si el usuario pega un token en el chat, no lo repitas y pedile que lo cargue en ese campo.
 - Excepcion (aplica a CUALQUIER nodo): si el usuario delega explicitamente la decision en vos, o muestra que no
   sabe/no le importa y te devuelve la pregunta (ej. "lo que consideres necesario", "decidilo vos", "todo lo
   importante", "no sabria decirte, que proponés?", "no se, vos podras"), eso ES una respuesta valida: marcá ese
@@ -65,7 +69,7 @@ contradiccion evidente, segui normal.
 Respondé SIEMPRE en JSON con esta forma exacta, nada mas:
 {"reply": "<tu mensaje al usuario>", "context": {"objetivo": bool, "acceso": bool, "alcance": bool, "repo": bool,
 "target_url": "<url o null>", "username": "<string o null>", "password": "<string o null>",
-"extra_urls": ["<url>", ...]}}
+"extra_urls": ["<url>", ...], "repo_url": "<url o null>"}}
 """
 
 PLAN_SYSTEM_PROMPT = """Sos un agente QA. En base a la conversacion completa con el usuario, generá un plan de

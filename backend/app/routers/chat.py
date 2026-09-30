@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session as OrmSession
 from app.llm.client import chat as llm_chat
 from app.llm.page_inspector import inspect_page
 from app.models.db import Message, Session, get_db
+from app.security import redact
 from app.models.schemas import ChatHistoryResponse, ChatMessage, ChatRequest, ChatResponse, ContextProgress
 
 router = APIRouter()
@@ -25,7 +26,9 @@ def post_chat(req: ChatRequest, db: OrmSession = Depends(get_db)) -> ChatRespons
     previous_context = ContextProgress(**json.loads(session.context_json))
     page_snapshot = inspect_page(previous_context.target_url) if previous_context.target_url else None
 
-    db.add(Message(session_id=session.id, role="user", content=req.message))
+    # si el usuario pega un token en el chat, no llega ni a SQLite ni al LLM (solo patrones: aca
+    # todavia no sabemos los valores de sus secretos).
+    db.add(Message(session_id=session.id, role="user", content=redact(req.message)))
     db.flush()
 
     history = [

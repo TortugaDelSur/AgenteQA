@@ -99,3 +99,17 @@ def test_get_chat_history_returns_messages(client, monkeypatch):
     assert len(data["messages"]) == 2
     assert data["messages"][0]["role"] == "user"
     assert data["messages"][1]["role"] == "assistant"
+
+
+def test_chat_never_stores_a_pasted_token(client, monkeypatch):
+    seen = {}
+
+    def fake_chat(history, page_snapshot=None):
+        seen["history"] = [m.content for m in history]
+        return "ok", ContextProgress()
+
+    monkeypatch.setattr(chat_router, "llm_chat", fake_chat)
+    token = "ghp_" + "x" * 36
+    resp = client.post("/api/chat", json={"message": f"mi token es {token}"})
+    assert resp.status_code == 200
+    assert all(token not in content for content in seen["history"])

@@ -58,3 +58,24 @@ def test_extra_urls_capped_at_max():
 def test_extra_urls_empty_without_target_url():
     context = ContextProgress(extra_urls=["/foo", "https://x.com/bar"])
     assert context.extra_urls == []
+
+
+def test_repo_url_accepts_github_and_bitbucket():
+    assert ContextProgress(repo_url="https://github.com/acme/app").repo_url == "https://github.com/acme/app"
+    assert ContextProgress(repo_url="https://bitbucket.org/acme/app.git").repo_url is not None
+
+
+def test_repo_url_rejects_anything_that_could_be_ssrf_or_leak_credentials():
+    # el clone usa la URL tal cual: un host ajeno clonaria desde la red interna (SSRF), y un
+    # user:pass@ dejaria el token en el historial del chat.
+    for bad in (
+        "http://github.com/acme/app",           # sin https
+        "https://gitlab.com/acme/app",          # proveedor no soportado
+        "https://github.com.evil.io/acme/app",  # host parecido
+        "https://tok:x@github.com/acme/app",    # credenciales embebidas
+        "https://github.com:8443/acme/app",     # puerto raro
+        "https://github.com:abc/acme/app",      # puerto invalido
+        "https://github.com/acme",              # falta el repo
+        "file:///etc/passwd",
+    ):
+        assert ContextProgress(repo_url=bad).repo_url is None, bad
