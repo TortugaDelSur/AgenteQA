@@ -1,0 +1,8 @@
+# Fixture minimo: el runner debe publicar 8080 solo en 127.0.0.1 (puerto al azar),
+# ignorar `privileged: true` y levantar con el .env dummy, no con el .env de abajo.
+services:
+  web:
+    image: nginx:alpine
+    ports: ["8080:80"]
+    env_file: .env
+    privileged: true
