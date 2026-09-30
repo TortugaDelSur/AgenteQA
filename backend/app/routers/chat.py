@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session as OrmSession
 from app.llm.client import chat as llm_chat
 from app.llm.page_inspector import inspect_page
 from app.models.db import Message, Session, get_db
+from app.repo.credentials import known_secrets
+from app.repo.workspace import repo_context
 from app.security import redact
 from app.models.schemas import ChatHistoryResponse, ChatMessage, ChatRequest, ChatResponse, ContextProgress
 
@@ -26,15 +28,18 @@ def post_chat(req: ChatRequest, db: OrmSession = Depends(get_db)) -> ChatRespons
     previous_context = ContextProgress(**json.loads(session.context_json))
     page_snapshot = inspect_page(previous_context.target_url) if previous_context.target_url else None
 
-    # si el usuario pega un token en el chat, no llega ni a SQLite ni al LLM (solo patrones: aca
-    # todavia no sabemos los valores de sus secretos).
-    db.add(Message(session_id=session.id, role="user", content=redact(req.message)))
+    # si el usuario pega un token en el chat, no llega ni a SQLite ni al LLM (patrones + el token
+    # que haya cargado en "Conectar repo").
+    db.add(Message(session_id=session.id, role="user", content=redact(req.message, known_secrets(session.id))))
     db.flush()
 
     history = [
         ChatMessage(role=m.role, content=m.content)
         for m in db.query(Message).filter_by(session_id=session.id).order_by(Message.id)
     ]
+    # contexto del repo como mensaje efimero (no se guarda): el LLM lo ve junto al page_snapshot.
+    if previous_context.repo_url:
+        history.append(ChatMessage(role="user", content=repo_context(session.id, previous_context.repo_url)))
 
     try:
         reply, context = llm_chat(history, page_snapshot=page_snapshot)

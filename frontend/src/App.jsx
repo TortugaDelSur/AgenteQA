@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   answerSweepQuestion, downloadReport, executePlan, getChatHistory, sendChat, submitSweepLogin, sweepPlan,
 } from './api/client';
+import RepoConnect from './components/RepoConnect';
 
 const welcomeMessage = {
   role: 'assistant',
@@ -365,6 +366,7 @@ export default function App() {
         </div>
 
         <QaStepper context={context} hasPlan={Boolean(plan)} />
+        <RepoConnect sessionId={sessionId} repoUrl={context?.repo_url} />
       </aside>
 
       <main className="conversation-area">

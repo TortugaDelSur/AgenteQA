@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.models.db import init_db
-from app.routers import chat, execute, plan, report
+from app.routers import chat, execute, plan, repo, report
 
 app = FastAPI(title="AgenteQA")
 
@@ -17,6 +17,7 @@ app.include_router(chat.router)
 app.include_router(plan.router)
 app.include_router(execute.router)
 app.include_router(report.router)
+app.include_router(repo.router)
 
 
 @app.on_event("startup")
