@@ -4,6 +4,7 @@ import httpx
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from openai import OpenAIError
 from pydantic import ValidationError
 from sqlalchemy.orm import Session as OrmSession
 
@@ -65,7 +66,7 @@ async def post_plan(req: PlanRequest, db: OrmSession = Depends(get_db)) -> TestP
 
     try:
         plan = generate_plan(history, page_snapshot=page_snapshot)
-    except (ValidationError, ValueError, TypeError) as e:
+    except (OpenAIError, ValidationError, ValueError, TypeError) as e:
         raise HTTPException(status_code=502, detail=f"LLM no genero un plan valido: {e}")
 
     db.add(Plan(session_id=req.session_id, plan_json=plan.model_dump_json()))
@@ -105,6 +106,21 @@ def _point_to_app(session_id: str, context: ContextProgress, app_url: str, db: O
     return context
 
 
+PLAN_ERROR_EVENT = {
+    "type": "error", "url": "plan", "retry": True,
+    "detail": "El modelo no pudo generar un plan valido (a veces devuelve JSON roto). Reintenta: el barrido ya hecho se conserva.",
+}
+
+
+def _try_generate_plan(history: list[ChatMessage], page_snapshot: str | None) -> TestPlan | None:
+    """None si el LLM falla incluso tras su reintento: el barrido avisa con un evento en vez de
+    cortar el stream (bug real en la e2e: el navegador mostraba "Error in input stream")."""
+    try:
+        return generate_plan(history, page_snapshot=page_snapshot)
+    except (OpenAIError, ValidationError, ValueError, TypeError):
+        return None
+
+
 async def _run_sweep(session_id: str, context: ContextProgress, history: list[ChatMessage], db: OrmSession):
     """Barrido de pantallas con pausa dura por duda o por login, sobre `target_url` + `extra_urls`.
 
@@ -139,7 +155,10 @@ async def _run_sweep(session_id: str, context: ContextProgress, history: list[Ch
         context = _point_to_app(session_id, context, app_url, db)
 
     if not context.target_url:
-        plan = generate_plan(history, page_snapshot=None)
+        plan = _try_generate_plan(history, None)
+        if plan is None:
+            yield PLAN_ERROR_EVENT
+            return
         db.add(Plan(session_id=session_id, plan_json=plan.model_dump_json()))
         db.commit()
         yield {"type": "plan_ready", "plan": plan.model_dump()}
@@ -227,7 +246,11 @@ async def _run_sweep(session_id: str, context: ContextProgress, history: list[Ch
             await playwright.stop()
 
     page_snapshot = format_snapshots(visited) if visited else None
-    plan = generate_plan(history, page_snapshot=page_snapshot)
+    plan = _try_generate_plan(history, page_snapshot)
+    if plan is None:
+        # el estado del barrido se conserva: el reintento salta directo a generar el plan.
+        yield PLAN_ERROR_EVENT
+        return
     if app_url:
         plan = launch.rebase_plan(plan, app_url)
     db.add(Plan(session_id=session_id, plan_json=plan.model_dump_json()))

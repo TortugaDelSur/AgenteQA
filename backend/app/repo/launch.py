@@ -12,7 +12,6 @@ Si se vuelve a necesitar, se relevanta: la app elegida se recuerda por posicion 
 """
 
 import asyncio
-import atexit
 import re
 import time
 from contextlib import contextmanager
@@ -124,7 +123,7 @@ def stop(session_id: str) -> None:
         return
     try:
         loop = asyncio.get_running_loop()
-    except RuntimeError:  # contexto sync (rutas def, atexit): se espera el apagado
+    except RuntimeError:  # contexto sync (rutas def): se espera el apagado
         try:
             asyncio.run(runner_client.stop_run(run["run_id"]))
         except Exception:
@@ -171,7 +170,9 @@ async def reap_forever() -> None:  # pragma: no cover - loop infinito; la logica
         reap_idle(time.monotonic())
 
 
-@atexit.register
-def _stop_all() -> None:
-    for session_id in list(_runs):
-        stop(session_id)
+async def stop_all() -> None:
+    """Apaga todo lo levantado. Lo llama el shutdown de FastAPI, con el event loop vivo: en atexit
+    no sirve (bug real: el pool de hilos que usa httpx para DNS ya esta cerrado, la llamada al
+    runner fallaba en silencio y los contenedores quedaban huerfanos)."""
+    runs = [_runs.pop(sid) for sid in list(_runs)]
+    await asyncio.gather(*(runner_client.stop_run(run["run_id"]) for run in runs), return_exceptions=True)

@@ -35,3 +35,4 @@ async def on_startup() -> None:
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
     app.state.reaper.cancel()
+    await launch.stop_all()  # no dejar contenedores del runner huerfanos al cerrar el backend

@@ -352,3 +352,36 @@ def test_sweep_with_credentials_does_not_try_to_log_in_on_a_home_without_login_f
     assert not any(line["type"] == "login_required" for line in lines)
     assert lines[-1]["type"] == "plan_ready"
     assert login_calls == ["https://x.com/login"]
+
+
+def test_sweep_reports_plan_failure_without_breaking_the_stream_and_retries(client, monkeypatch):
+    from openai import OpenAIError
+
+    session_id = _new_session(client, monkeypatch, objetivo=True, acceso=True, target_url="https://x.com")
+    monkeypatch.setattr(plan_router, "_launch_browser", _browser_factory({"https://x.com": '<input id="a">'}))
+    monkeypatch.setattr(plan_router, "check_page_doubt", lambda history, url, elements: None)
+
+    def broken(history, page_snapshot=None):
+        raise OpenAIError("json_validate_failed")
+
+    monkeypatch.setattr(plan_router, "generate_plan", broken)
+    lines = _parse_ndjson(client.post("/api/plan/sweep", json={"session_id": session_id}).text)
+    assert lines[-1]["type"] == "error" and lines[-1]["retry"] is True
+
+    # reintento: no vuelve a visitar paginas, solo genera el plan
+    monkeypatch.setattr(plan_router, "generate_plan", lambda history, page_snapshot=None: SAMPLE_TEST_PLAN)
+    lines = _parse_ndjson(client.post("/api/plan/sweep", json={"session_id": session_id}).text)
+    assert [line["type"] for line in lines] == ["plan_ready"]
+
+
+def test_sweep_without_url_reports_plan_failure(client, monkeypatch):
+    from openai import OpenAIError
+
+    session_id = _new_session(client, monkeypatch, objetivo=True)
+
+    def broken(history, page_snapshot=None):
+        raise OpenAIError("down")
+
+    monkeypatch.setattr(plan_router, "generate_plan", broken)
+    lines = _parse_ndjson(client.post("/api/plan/sweep", json={"session_id": session_id}).text)
+    assert lines == [plan_router.PLAN_ERROR_EVENT]

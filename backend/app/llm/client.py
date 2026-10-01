@@ -1,7 +1,7 @@
 import json
 from functools import lru_cache
 
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 from pydantic import ValidationError
 
 from app.config import settings
@@ -48,6 +48,25 @@ def chat(history: list[ChatMessage], page_snapshot: str | None = None) -> tuple[
     return data["reply"], ContextProgress(**data["context"])
 
 
+def _json_completion(messages: list[dict]) -> str:
+    """Contenido JSON del modelo. Si Groq rechaza su propia salida por JSON invalido (400
+    json_validate_failed), devuelve esa salida fallida como texto: asi entra al mismo reintento que un
+    JSON invalido recibido (bug real en la e2e: el 400 cortaba el barrido con "Error in input stream")."""
+    try:
+        response = get_client().chat.completions.create(
+            model=settings.deepseek_model,
+            messages=messages,
+            response_format={"type": "json_object"},
+            temperature=TEMPERATURE,
+        )
+    except BadRequestError as e:
+        if e.code != "json_validate_failed":
+            raise
+        body = e.body if isinstance(e.body, dict) else {}
+        return str(body.get("failed_generation") or "")
+    return response.choices[0].message.content
+
+
 def generate_plan(history: list[ChatMessage], page_snapshot: str | None = None) -> TestPlan:
     messages = _to_openai_messages(PLAN_SYSTEM_PROMPT, history)
     if page_snapshot:
@@ -56,13 +75,7 @@ def generate_plan(history: list[ChatMessage], page_snapshot: str | None = None) 
             "content": f"Elementos reales encontrados en la pagina:\n{page_snapshot}",
         })
 
-    response = get_client().chat.completions.create(
-        model=settings.deepseek_model,
-        messages=messages,
-        response_format={"type": "json_object"},
-        temperature=TEMPERATURE,
-    )
-    raw = response.choices[0].message.content
+    raw = _json_completion(messages)
 
     try:
         return _parse_test_plan(raw)
@@ -75,13 +88,7 @@ def generate_plan(history: list[ChatMessage], page_snapshot: str | None = None) 
                            f'(un objeto con la clave "test_cases"), y devolvé solo el JSON valido.',
             },
         ]
-        response = get_client().chat.completions.create(
-            model=settings.deepseek_model,
-            messages=retry_messages,
-            response_format={"type": "json_object"},
-            temperature=TEMPERATURE,
-        )
-        return _parse_test_plan(response.choices[0].message.content)
+        return _parse_test_plan(_json_completion(retry_messages))
 
 
 def _parse_test_plan(raw: str) -> TestPlan:

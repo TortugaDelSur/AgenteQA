@@ -186,3 +186,58 @@ def test_generate_report_builds_markdown_from_plan_and_results(monkeypatch):
     assert sent_messages[0]["role"] == "system"
     assert "TC-01" in sent_messages[1]["content"]
     assert "esperaba 200, recibio 500" in sent_messages[1]["content"]
+
+
+def _groq_json_400(failed_generation):
+    import httpx
+    import openai
+    req = httpx.Request("POST", "https://groq.test/chat")
+    resp = httpx.Response(400, request=req, json={"error": {
+        "message": "Failed to generate JSON", "type": "invalid_request_error",
+        "code": "json_validate_failed", "failed_generation": failed_generation,
+    }})
+    return openai.OpenAI(api_key="x", base_url="https://groq.test")._make_status_error_from_response(resp)
+
+
+def test_generate_plan_retries_when_groq_rejects_its_own_json(monkeypatch):
+    # bug real en la e2e: Groq devolvio 400 json_validate_failed (escape roto) y el barrido se cortaba.
+    valid_plan = json.dumps({"test_cases": [{
+        "id": "TC-01", "type": "endpoint", "title": "health",
+        "request": {"method": "GET", "url": "https://x.com/health"}, "expected_status": 200,
+    }]})
+    fake = FakeClient([valid_plan])
+    calls = {"n": 0}
+    real_create = fake.chat.completions.create
+
+    def create(**kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _groq_json_400('{"test_cases":[{"value\\":\\"roto"}]}')
+        return real_create(**kwargs)
+
+    fake.chat.completions.create = create
+    monkeypatch.setattr(llm_client, "get_client", lambda: fake)
+
+    plan = llm_client.generate_plan(HISTORY)
+
+    assert len(plan.test_cases) == 1
+    retry = fake.chat.completions.last_kwargs["messages"]
+    assert retry[-2] == {"role": "assistant", "content": '{"test_cases":[{"value\\":\\"roto"}]}'}
+
+
+def test_generate_plan_other_bad_requests_still_raise(monkeypatch):
+    import httpx
+    import openai
+    req = httpx.Request("POST", "https://groq.test/chat")
+    other = openai.OpenAI(api_key="x", base_url="https://groq.test")._make_status_error_from_response(
+        httpx.Response(400, request=req, json={"error": {"message": "context too long", "code": "context_length_exceeded"}})
+    )
+    fake = FakeClient([])
+
+    def create(**kwargs):
+        raise other
+
+    fake.chat.completions.create = create
+    monkeypatch.setattr(llm_client, "get_client", lambda: fake)
+    with pytest.raises(openai.BadRequestError):
+        llm_client.generate_plan(HISTORY)

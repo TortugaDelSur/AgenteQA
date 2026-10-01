@@ -457,3 +457,34 @@ def test_execute_pauses_when_repo_cannot_be_relaunched(client, monkeypatch, tmp_
     monkeypatch.setattr(runner_client, "start_run", two_urls)
     lines = _ndjson(client.post("/api/execute", json={"session_id": sid}).text)
     assert lines[0]["reason"] == "unreachable" and "varias URLs" in lines[0]["detail"]
+
+
+async def test_stop_all_stops_every_run_and_survives_runner_errors(monkeypatch):
+    stopped = []
+
+    async def fake_stop(run_id):
+        stopped.append(run_id)
+        if run_id == "aqa-b":
+            raise httpx.ConnectError("sin runner")
+
+    monkeypatch.setattr(runner_client, "stop_run", fake_stop)
+    for sid in ("a", "b", "c"):
+        launch._runs[sid] = {"run_id": f"aqa-{sid}", "urls": [], "chosen": None, "started_at": 0.0}
+    await launch.stop_all()
+    assert sorted(stopped) == ["aqa-a", "aqa-b", "aqa-c"] and not launch._runs
+
+
+def test_backend_shutdown_stops_launched_repos(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    stopped = []
+
+    async def fake_stop(run_id):
+        stopped.append(run_id)
+
+    monkeypatch.setattr(runner_client, "stop_run", fake_stop)
+    with TestClient(app):
+        launch._runs["s"] = {"run_id": "aqa-s", "urls": [], "chosen": None, "started_at": 0.0}
+    assert stopped == ["aqa-s"]

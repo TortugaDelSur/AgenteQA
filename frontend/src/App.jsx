@@ -108,7 +108,7 @@ function QaStepper({ context, hasPlan }) {
   );
 }
 
-function SweepPanel({ events, question, onAnswer, loginRequired, onSubmitLogin, isLoading }) {
+function SweepPanel({ events, question, onAnswer, loginRequired, onSubmitLogin, isLoading, onRetry }) {
   const [answer, setAnswer] = useState('');
   const [loginUser, setLoginUser] = useState('');
   const [loginPass, setLoginPass] = useState('');
@@ -120,7 +120,14 @@ function SweepPanel({ events, question, onAnswer, loginRequired, onSubmitLogin, 
       {events.map((event, index) => (
         <div className="sweep-event" key={index}>
           {event.type === 'error' ? (
-            <p className="sweep-error">{event.url}: {event.detail}</p>
+            <>
+              <p className="sweep-error">{event.url === 'plan' ? event.detail : `${event.url}: ${event.detail}`}</p>
+              {event.retry && (
+                <button type="button" className="execute-button" onClick={onRetry} disabled={isLoading}>
+                  Reintentar generar el plan
+                </button>
+              )}
+            </>
           ) : event.type === 'launching' ? (
             <p className="sweep-visiting">{event.detail}</p>
           ) : event.type === 'page_result' ? (
@@ -561,6 +568,11 @@ export default function App() {
               loginRequired={sweepLoginRequired}
               onSubmitLogin={handleSubmitSweepLogin}
               isLoading={isLoading}
+              onRetry={() => {
+                // el error viejo con boton se quita; el barrido ya hecho se conserva en el backend.
+                setSweepEvents((current) => current.filter((event) => !event.retry));
+                runSweepPlan(sessionId);
+              }}
             />
 
             <LivePanel
