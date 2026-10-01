@@ -97,6 +97,9 @@ links: [data]
       tech: ui_runner._password_filled (page.evaluate)
       by: claude
 
+- [ ] No pausar pidiendo credenciales cuando el propio caso prueba un login fallido (TC-03 de la e2e: credenciales incorrectas -> la pagina vuelve al form con password vacio -> se confundia con un muro de login, aunque las credenciales ya estaban dadas)
+      tech: ui_runner._check_pause / _password_filled; considerar si el caso lleno el password en algun paso previo
+      from: roadmap
 files: [backend/app/execution/, backend/app/routers/execute.py, backend/app/live.py]
 
 ## Generar el reporte {#report}
@@ -137,6 +140,9 @@ links: [runner, report]
       from: agent
       by: claude
 
+- [ ] Persistir las integraciones para que el token sobreviva a un reinicio del backend
+      tech: hoy solo memoria (decision de seguridad); evaluar cifrado en disco con clave fuera del repo, o keyring del SO
+      from: roadmap
 files: [backend/app/repo/**, backend/app/routers/repo.py]
 
 ## Levantar el repo de forma aislada {#runner}
@@ -161,6 +167,9 @@ links: [execution]
       tech: red `internal` + Playwright dentro de esa red; hacerlo al migrar a instancia
       from: roadmap
 
+- [ ] Investigar el limite real para levantar local: el repo mas grande del owner tiene 36 servicios docker
+      tech: limites fijos por servicio (1 GB / 1 CPU / 256 pids) x 36; healthcheck 180 s; build 900 s; RAM/CPU de la maquina
+      from: roadmap
 files: [runner/**, backend/app/runner_client.py]
 
 ## Datos y contrato compartido {#data}
@@ -219,6 +228,18 @@ needs: [chat, plan, execution, report]
 - [ ] Dashboard visual de resultados mas alla de una lista simple pass/fail
       from: roadmap
 
+- [ ] Mostrar el navegador en vivo en un solo lugar (pestaña o panel lateral), no repetido en cada resultado
+      tech: hoy se ve en LivePanel y ademas como screenshot en cada result-item del execution-card
+      from: roadmap
+- [ ] Que "Iniciar sesion y continuar" (y los demas botones de pausa) no se puedan enviar varias veces
+      tech: LivePanel/SweepPanel: deshabilitar mientras se envia y ocultar el form al retomar
+      from: roadmap
+- [ ] Deshabilitar u ocultar "Ejecutar plan de pruebas" una vez presionado (hoy vuelve a quedar habilitado y varios clics pueden romper la corrida)
+      tech: App.jsx::handleExecutePlan
+      from: roadmap
+- [ ] Mas pasos en "Progreso de QA" (repositorio, barrido, ejecucion, reporte) y un indicador de en que va mientras ejecuta
+      tech: QaStepper; hoy el usuario no sabe que esta pasando hasta el reporte final
+      from: roadmap
 files: [frontend/src/App.jsx, frontend/src/api/client.js, frontend/src/styles.css, frontend/src/components/**, frontend/vite.config.js]
 
 ## decisions
