@@ -14,6 +14,54 @@ const welcomeMessage = {
 
 const SESSION_STORAGE_KEY = 'agenteqa_session_id';
 
+const bubbleData = [
+  { left: '82%', size: 32, category: 'foreground', duration: 24, delay: -0.0, drift: 16, opacity: 0.7, blur: 2 },
+  { left: '12%', size: 48, category: 'foreground', duration: 28, delay: -1.5, drift: -18, opacity: 0.66, blur: 2 },
+  { left: '64%', size: 72, category: 'mid', duration: 31, delay: -3.0, drift: 20, opacity: 0.42, blur: 8 },
+  { left: '5%', size: 86, category: 'back', duration: 34, delay: -4.5, drift: -14, opacity: 0.2, blur: 18 },
+  { left: '91%', size: 44, category: 'foreground', duration: 20, delay: -6.0, drift: -22, opacity: 0.6, blur: 2 },
+  { left: '38%', size: 96, category: 'back', duration: 30, delay: -7.5, drift: 18, opacity: 0.22, blur: 20 },
+  { left: '73%', size: 54, category: 'mid', duration: 26, delay: -9.0, drift: -17, opacity: 0.34, blur: 6 },
+  { left: '24%', size: 40, category: 'foreground', duration: 23, delay: -10.5, drift: 12, opacity: 0.63, blur: 2 },
+  { left: '49%', size: 68, category: 'mid', duration: 29, delay: -12.0, drift: 15, opacity: 0.38, blur: 9 },
+  { left: '58%', size: 28, category: 'foreground', duration: 22, delay: -13.5, drift: -12, opacity: 0.7, blur: 2 },
+  { left: '31%', size: 112, category: 'back', duration: 36, delay: -15.0, drift: 19, opacity: 0.18, blur: 22 },
+  { left: '68%', size: 36, category: 'foreground', duration: 25, delay: -16.5, drift: 16, opacity: 0.58, blur: 2 },
+  { left: '87%', size: 76, category: 'mid', duration: 32, delay: -18.0, drift: -15, opacity: 0.3, blur: 8 },
+  { left: '17%', size: 54, category: 'mid', duration: 27, delay: -19.5, drift: 22, opacity: 0.44, blur: 7 },
+  { left: '52%', size: 24, category: 'foreground', duration: 21, delay: -21.0, drift: -10, opacity: 0.68, blur: 2 },
+  { left: '96%', size: 88, category: 'back', duration: 33, delay: -22.5, drift: -18, opacity: 0.16, blur: 18 },
+  { left: '44%', size: 36, category: 'foreground', duration: 24, delay: -24.0, drift: -16, opacity: 0.62, blur: 2 },
+  { left: '59%', size: 84, category: 'mid', duration: 30, delay: -25.5, drift: 10, opacity: 0.28, blur: 12 },
+  { left: '7%', size: 26, category: 'foreground', duration: 22, delay: -27.0, drift: 18, opacity: 0.7, blur: 2 },
+  { left: '93%', size: 58, category: 'mid', duration: 29, delay: -28.5, drift: -12, opacity: 0.36, blur: 7 },
+];
+
+function QaIcon({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3 20 6v5c0 5-3.3 8.7-8 10-4.7-1.3-8-5-8-10V6l8-3Z" fill="url(#qa-gradient)" />
+      <path d="m8.5 12 2.2 2.2 4.8-5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <defs>
+        <linearGradient id="qa-gradient" x1="4" y1="4" x2="19" y2="20">
+          <stop stopColor="#c7b7ff" />
+          <stop offset="1" stopColor="#7353d6" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
+function TypingLoader() {
+  return (
+    <div className="typing" aria-label="Escribiendo">
+      <i />
+      <i />
+      <i />
+    </div>
+  );
+}
+
 function QaStepper({ context, hasPlan }) {
   const completed = [
     Boolean(context.objetivo),
@@ -37,6 +85,7 @@ function QaStepper({ context, hasPlan }) {
         <span className="stepper-eyebrow">Progreso de QA</span>
         <span className="stepper-count">{completed.filter(Boolean).length}/{steps.length}</span>
       </div>
+      <div className="progress-track"><span style={{ width: `${(completed.filter(Boolean).length / steps.length) * 100}%` }} /></div>
       <div className="stepper-list">
         {steps.map((step, index) => {
           const isCompleted = completed[index];
@@ -379,6 +428,12 @@ export default function App() {
 
   return (
     <div className="claude-app">
+      <div className="ambient-glow" aria-hidden="true">
+        <span className="glow glow-1" />
+        <span className="glow glow-2" />
+        <span className="glow glow-3" />
+        <span className="glow glow-4" />
+      </div>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">A</div>
@@ -411,6 +466,25 @@ export default function App() {
       </aside>
 
       <main className="conversation-area">
+        <div className="floating-bubbles" aria-hidden="true">
+          {bubbleData.map((bubble, index) => (
+            <span
+              key={`bubble-${index}`}
+              className={`bubble-wrapper ${bubble.category}`}
+              style={{
+                left: bubble.left,
+                animationDuration: `${bubble.duration}s`,
+                animationDelay: `${bubble.delay}s`,
+                ['--drift-x']: `${bubble.drift}px`,
+                ['--bubble-opacity']: String(bubble.opacity),
+                ['--blur']: `${bubble.blur}px`,
+                ['--size']: `${bubble.size}px`,
+              }}
+            >
+              <span className="bubble-circle" style={{ width: `${bubble.size}px`, height: `${bubble.size}px` }} />
+            </span>
+          ))}
+        </div>
         {view === 'integrations' ? (
           <IntegrationsPage integrations={integrations} onChange={setIntegrations} onBack={() => setView('chat')} />
         ) : (
@@ -423,6 +497,19 @@ export default function App() {
                   {message.role === 'assistant' && <div className="assistant-mark">A</div>}
                   <div className="message-body">
                     {message.role === 'assistant' && <span className="message-name">AgenteQA</span>}
+                    {message.role === 'assistant' && (
+                      <button
+                        type="button"
+                        className="copy-button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(message.content).catch(() => {});
+                        }}
+                        aria-label="Copiar respuesta"
+                        title="Copiar contenido"
+                      >
+                        <span className="copy-icon">⧉</span>
+                      </button>
+                    )}
                     <p>{message.content}</p>
                   </div>
                 </article>
@@ -432,7 +519,7 @@ export default function App() {
                   <div className="assistant-mark">A</div>
                   <div className="message-body">
                     <span className="message-name">AgenteQA</span>
-                    <div className="typing"><i /><i /><i /></div>
+                    <TypingLoader />
                   </div>
                 </article>
               )}
@@ -537,6 +624,7 @@ export default function App() {
                 setInput(event.target.value);
                 resizeTextarea(event.target);
               }}
+              onInput={(event) => resizeTextarea(event.target)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault();
@@ -555,7 +643,12 @@ export default function App() {
               </div>
               <div className="composer-actions">
                 <span className="shortcut">Shift + Enter para nueva línea</span>
-                <button type="submit" className="send-button" disabled={!input.trim() || isLoading} aria-label="Enviar">
+                <button
+                  type="submit"
+                  className={`send-button ${input.trim() ? 'active' : ''}`}
+                  disabled={!input.trim() || isLoading}
+                  aria-label="Enviar"
+                >
                   ↑
                 </button>
               </div>
