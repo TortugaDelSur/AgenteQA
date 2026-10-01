@@ -357,7 +357,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .nav-label { flex: 1; }
 .nav-dot { width: 8px; height: 8px; border-radius: 50%; background: #744a67; }
 .nav-dot.on { background: #6fcf86; }
-.gate-backdrop { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; background: rgba(10, 12, 18, .78); backdrop-filter: blur(3px); }
+.gate-backdrop { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px; background: rgba(10, 12, 18, .78); backdrop-filter: blur(3px); }
 .gate-modal { width: min(460px, 100%); padding: 26px; border: 1px solid #3c3452; border-radius: 16px; background: #181c26; box-shadow: 0 20px 60px rgba(0, 0, 0, .45); }
 .gate-modal h2 { margin: 6px 0 10px; color: #f0edf8; font-size: 20px; }
 .gate-modal p { margin: 0; color: #bcb8c8; font-size: 14px; line-height: 1.55; }

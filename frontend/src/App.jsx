@@ -466,6 +466,9 @@ export default function App() {
       </aside>
 
       <main className="conversation-area">
+        {/* hijo directo del area principal (no de .chat-content, que es una columna al 88% con su
+            propio z-index): asi el fondo del modal cubre todo el ancho. */}
+        {view === 'chat' && chatBlocked && <IntegrationGate onGoToIntegrations={() => setView('integrations')} />}
         <div className="floating-bubbles" aria-hidden="true">
           {bubbleData.map((bubble, index) => (
             <span
@@ -489,7 +492,6 @@ export default function App() {
           <IntegrationsPage integrations={integrations} onChange={setIntegrations} onBack={() => setView('chat')} />
         ) : (
         <section className="chat-content">
-          {chatBlocked && <IntegrationGate onGoToIntegrations={() => setView('integrations')} />}
           <div className="chat-scroll" ref={chatScrollRef}>
             <div className="messages">
               {messages.map((message, index) => (
