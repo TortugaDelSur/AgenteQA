@@ -1,11 +1,17 @@
 import json
 from functools import lru_cache
 
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 from pydantic import ValidationError
 
 from app.config import settings
-from app.llm.prompts import CHAT_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT, REPORT_SYSTEM_PROMPT
+from app.llm.prompts import (
+    CHAT_SYSTEM_PROMPT,
+    DIAGNOSIS_SYSTEM_PROMPT,
+    PAGE_DOUBT_SYSTEM_PROMPT,
+    PLAN_SYSTEM_PROMPT,
+    REPORT_SYSTEM_PROMPT,
+)
 from app.models.schemas import ChatMessage, ContextProgress, TestPlan, TestResult
 
 # temperature baja para que el checklist de contexto y el plan sean lo mas reproducibles posible
@@ -42,6 +48,25 @@ def chat(history: list[ChatMessage], page_snapshot: str | None = None) -> tuple[
     return data["reply"], ContextProgress(**data["context"])
 
 
+def _json_completion(messages: list[dict]) -> str:
+    """Contenido JSON del modelo. Si Groq rechaza su propia salida por JSON invalido (400
+    json_validate_failed), devuelve esa salida fallida como texto: asi entra al mismo reintento que un
+    JSON invalido recibido (bug real en la e2e: el 400 cortaba el barrido con "Error in input stream")."""
+    try:
+        response = get_client().chat.completions.create(
+            model=settings.deepseek_model,
+            messages=messages,
+            response_format={"type": "json_object"},
+            temperature=TEMPERATURE,
+        )
+    except BadRequestError as e:
+        if e.code != "json_validate_failed":
+            raise
+        body = e.body if isinstance(e.body, dict) else {}
+        return str(body.get("failed_generation") or "")
+    return response.choices[0].message.content
+
+
 def generate_plan(history: list[ChatMessage], page_snapshot: str | None = None) -> TestPlan:
     messages = _to_openai_messages(PLAN_SYSTEM_PROMPT, history)
     if page_snapshot:
@@ -50,13 +75,7 @@ def generate_plan(history: list[ChatMessage], page_snapshot: str | None = None) 
             "content": f"Elementos reales encontrados en la pagina:\n{page_snapshot}",
         })
 
-    response = get_client().chat.completions.create(
-        model=settings.deepseek_model,
-        messages=messages,
-        response_format={"type": "json_object"},
-        temperature=TEMPERATURE,
-    )
-    raw = response.choices[0].message.content
+    raw = _json_completion(messages)
 
     try:
         return _parse_test_plan(raw)
@@ -69,13 +88,7 @@ def generate_plan(history: list[ChatMessage], page_snapshot: str | None = None) 
                            f'(un objeto con la clave "test_cases"), y devolvé solo el JSON valido.',
             },
         ]
-        response = get_client().chat.completions.create(
-            model=settings.deepseek_model,
-            messages=retry_messages,
-            response_format={"type": "json_object"},
-            temperature=TEMPERATURE,
-        )
-        return _parse_test_plan(response.choices[0].message.content)
+        return _parse_test_plan(_json_completion(retry_messages))
 
 
 def _parse_test_plan(raw: str) -> TestPlan:
@@ -83,6 +96,20 @@ def _parse_test_plan(raw: str) -> TestPlan:
     if not isinstance(data, dict):
         raise TypeError(f"esperaba un objeto JSON, recibio {type(data).__name__}")
     return TestPlan(**data)
+
+
+def check_page_doubt(history: list[ChatMessage], url: str, elements: str) -> str | None:
+    messages = _to_openai_messages(PAGE_DOUBT_SYSTEM_PROMPT, history)
+    messages.append({"role": "user", "content": f"Pantalla: {url}\nElementos encontrados:\n{elements}"})
+
+    response = get_client().chat.completions.create(
+        model=settings.deepseek_model,
+        messages=messages,
+        response_format={"type": "json_object"},
+        temperature=TEMPERATURE,
+    )
+    data = json.loads(response.choices[0].message.content)
+    return data.get("question") or None
 
 
 def generate_report(plan: TestPlan, results: list[TestResult]) -> str:
@@ -99,3 +126,17 @@ def generate_report(plan: TestPlan, results: list[TestResult]) -> str:
         temperature=TEMPERATURE,
     )
     return response.choices[0].message.content
+
+
+def diagnose_failure(evidence: str) -> dict:
+    """`evidence` ya viene redactado y envuelto como no confiable (ver app/diagnosis.py)."""
+    response = get_client().chat.completions.create(
+        model=settings.deepseek_model,
+        messages=[
+            {"role": "system", "content": DIAGNOSIS_SYSTEM_PROMPT},
+            {"role": "user", "content": evidence},
+        ],
+        response_format={"type": "json_object"},
+        temperature=TEMPERATURE,
+    )
+    return json.loads(response.choices[0].message.content)

@@ -12,3 +12,4 @@ build/
 .vite/
 screenshots/
 .claude/
+.agenttrail/

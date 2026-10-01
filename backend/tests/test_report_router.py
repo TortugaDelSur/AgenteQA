@@ -30,7 +30,7 @@ def _session_with_plan(client, monkeypatch) -> str:
 def _executed_session(client, monkeypatch) -> str:
     session_id = _session_with_plan(client, monkeypatch)
 
-    async def fake_run_test_case(tc, sid):
+    async def fake_run_test_case(tc, sid, **kwargs):
         if tc.id == "TC-01":
             return TestResult(test_case_id="TC-01", status="fail", detail="boom", evidence="TC-01.png")
         return TestResult(test_case_id=tc.id, status="pass", detail="ok")

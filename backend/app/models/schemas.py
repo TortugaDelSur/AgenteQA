@@ -5,6 +5,21 @@ from pydantic import BaseModel, Field, model_validator
 
 MAX_EXTRA_URLS = 8
 
+REPO_HOSTS = {"github.com": "github", "bitbucket.org": "bitbucket"}
+
+
+def repo_provider(repo_url: str) -> Literal["github", "bitbucket"] | None:
+    """Proveedor del repo si la URL es https a un host permitido y sin user:pass@; si no, None."""
+    parsed = urlparse(repo_url.strip())
+    try:
+        has_port = parsed.port is not None
+    except ValueError:  # puerto no numerico ("host:abc")
+        return None
+    owner_and_repo = [part for part in parsed.path.split("/") if part]
+    if parsed.scheme != "https" or parsed.username or parsed.password or has_port or len(owner_and_repo) < 2:
+        return None
+    return REPO_HOSTS.get((parsed.hostname or "").lower())  # type: ignore[return-value]
+
 
 class ContextProgress(BaseModel):
     objetivo: bool = False
@@ -17,13 +32,20 @@ class ContextProgress(BaseModel):
     password: str | None = None
     # paginas extra mencionadas por el usuario en el alcance (post-login), si dio URLs concretas.
     extra_urls: list[str] = []
+    # repo de la empresa a clonar/levantar. Solo hosts de REPO_HOSTS (filtro duro abajo).
+    repo_url: str | None = None
+    # el usuario dijo que tiene repositorio: el front muestra el aviso de integracion o la lista de
+    # repos hasta que elija uno (POST /api/repo/select). "repo" queda en false hasta entonces.
+    wants_repo: bool = False
 
     @property
     def ready_for_plan(self) -> bool:
         # "repo" tambien bloquea (aunque el usuario no tenga uno, igual hay que preguntarle):
         # si no bloqueara, el front puede disparar el plan en el mismo turno en que el chat
         # todavia esta preguntando por el repo, cortandole la respuesta al usuario.
-        return self.objetivo and self.acceso and self.alcance and self.repo
+        return self.objetivo and self.acceso and self.alcance and self.repo and (
+            not self.wants_repo or bool(self.repo_url)
+        )
 
     @model_validator(mode="after")
     def _sanitize_extra_urls(self) -> "ContextProgress":
@@ -45,6 +67,14 @@ class ContextProgress(BaseModel):
             if len(sanitized) >= MAX_EXTRA_URLS:
                 break
         self.extra_urls = sanitized
+        return self
+
+    @model_validator(mode="after")
+    def _sanitize_repo_url(self) -> "ContextProgress":
+        """Filtro duro: solo https a GitHub/Bitbucket, sin credenciales embebidas. El clone usa
+        esta URL tal cual; aceptar cualquier host seria un SSRF (clonar desde la red interna)."""
+        if self.repo_url is not None and repo_provider(self.repo_url) is None:
+            self.repo_url = None
         return self
 
 
@@ -109,6 +139,59 @@ class PlanRequest(BaseModel):
     session_id: str
 
 
+class SweepAnswerRequest(BaseModel):
+    session_id: str
+    answer: str = Field(min_length=1, max_length=4000)
+
+
+class SweepLoginRequest(BaseModel):
+    session_id: str
+    username: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=1, max_length=200)
+
+
+# --- Repo de la empresa (ver TRABAJO-PARALELO.md, contratos congelados) ---
+
+class RepoInfo(BaseModel):
+    framework: str | None = None
+    has_compose: bool = False
+    has_dockerfile: bool = False
+    services: list[str] = []
+    ports: list[int] = []
+    # solo los NOMBRES de las variables de .env.example, nunca valores.
+    env_example_keys: list[str] = []
+    api_routes: list[str] = []
+
+
+class IntegrationRequest(BaseModel):
+    provider: Literal["github", "bitbucket"]
+    token: str = Field(min_length=1, max_length=500)
+    # solo Bitbucket: email de la cuenta Atlassian para Basic auth del API token (sin el, Bearer).
+    email: str | None = Field(default=None, max_length=200)
+
+
+class RepoSummary(BaseModel):
+    provider: Literal["github", "bitbucket"]
+    full_name: str
+    url: str
+    private: bool
+    description: str | None = None
+    updated_at: str | None = None
+
+
+class RepoSelectRequest(BaseModel):
+    session_id: str | None = None
+    provider: Literal["github", "bitbucket"]
+    full_name: str = Field(min_length=3, max_length=200)
+
+
+class SuspectedCause(BaseModel):
+    file: str
+    line: int | None = None
+    explanation: str
+    confidence: Literal["alta", "media", "baja"]
+
+
 # --- Resultados de ejecucion (contrato compartido con Persona B) ---
 
 class TestResult(BaseModel):
@@ -116,6 +199,12 @@ class TestResult(BaseModel):
     status: Literal["pass", "fail", "error"]
     detail: str
     evidence: str | None = None
+    # captura en memoria del estado final de la pantalla (solo tests "ui"), para que el front
+    # la muestre en vivo mientras ejecuta. No se persiste en DB (execute.py arma el Result
+    # campo por campo, este no esta entre ellos) — es solo para la corrida en curso.
+    screenshot_b64: str | None = None
+    # solo si hay repo levantado y el test fallo: donde esta probablemente el problema.
+    suspected_cause: SuspectedCause | None = None
 
 
 class ExecutionResponse(BaseModel):

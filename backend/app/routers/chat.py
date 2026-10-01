@@ -8,6 +8,9 @@ from sqlalchemy.orm import Session as OrmSession
 from app.llm.client import chat as llm_chat
 from app.llm.page_inspector import inspect_page
 from app.models.db import Message, Session, get_db
+from app.repo.credentials import known_secrets
+from app.repo.workspace import repo_context
+from app.security import redact
 from app.models.schemas import ChatHistoryResponse, ChatMessage, ChatRequest, ChatResponse, ContextProgress
 
 router = APIRouter()
@@ -25,19 +28,36 @@ def post_chat(req: ChatRequest, db: OrmSession = Depends(get_db)) -> ChatRespons
     previous_context = ContextProgress(**json.loads(session.context_json))
     page_snapshot = inspect_page(previous_context.target_url) if previous_context.target_url else None
 
-    db.add(Message(session_id=session.id, role="user", content=req.message))
+    # si el usuario pega un token en el chat, no llega ni a SQLite ni al LLM (patrones + los tokens
+    # cargados en Integraciones).
+    db.add(Message(session_id=session.id, role="user", content=redact(req.message, known_secrets())))
     db.flush()
 
     history = [
         ChatMessage(role=m.role, content=m.content)
         for m in db.query(Message).filter_by(session_id=session.id).order_by(Message.id)
     ]
+    # contexto del repo como mensaje efimero (no se guarda): el LLM lo ve junto al page_snapshot.
+    if previous_context.repo_url:
+        history.append(ChatMessage(role="user", content=repo_context(session.id, previous_context.repo_url)))
 
     try:
         reply, context = llm_chat(history, page_snapshot=page_snapshot)
     except (OpenAIError, KeyError, ValueError, json.JSONDecodeError) as e:
         raise HTTPException(status_code=502, detail=f"El LLM no respondio correctamente: {e}")
 
+    # el repo solo lo fija el selector (POST /api/repo/select, que valida contra los repos del token):
+    # lo que diga el LLM no cuenta, asi un link pegado en el chat nunca llega a clonarse.
+    context.repo_url = previous_context.repo_url
+    if context.repo_url:
+        context.repo, context.wants_repo = True, True
+    elif context.repo and not context.wants_repo:
+        pass  # dijo que no tiene repo (o se arrepintio): nodo resuelto, sigue con URL
+    else:
+        # dijo que si: el nodo queda abierto hasta que elija el repo en la lista. wants_repo se
+        # mantiene aunque el LLM se lo olvide en un turno siguiente.
+        context.wants_repo = context.wants_repo or previous_context.wants_repo
+        context.repo = False
     session.context_json = context.model_dump_json()
     db.add(Message(session_id=session.id, role="assistant", content=reply))
     db.commit()

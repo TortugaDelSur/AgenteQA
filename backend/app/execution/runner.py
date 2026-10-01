@@ -1,19 +1,22 @@
 from collections.abc import AsyncIterator
 
+from app.execution import ExecutionPaused
 from app.execution.endpoint_runner import run_endpoint
-from app.execution.ui_runner import run_ui
+from app.execution.ui_runner import AskFn, run_ui
 from app.models.schemas import TestCase, TestPlan, TestResult
 
 
-async def run_test_case(tc: TestCase, session_id: str) -> TestResult:
+async def run_test_case(tc: TestCase, session_id: str, browser=None, ask: AskFn | None = None) -> TestResult:
     try:
         if tc.type == "endpoint":
             return await run_endpoint(tc)
         if tc.type == "ui":
-            return await run_ui(tc, session_id)
+            return await run_ui(tc, session_id, browser=browser, ask=ask)
         return TestResult(
             test_case_id=tc.id, status="error", detail=f"tipo de test desconocido: {tc.type!r}"
         )
+    except ExecutionPaused:
+        raise
     except Exception as exc:  # un test que revienta no debe tumbar el resto del plan
         return TestResult(
             test_case_id=tc.id, status="error", detail=f"error inesperado ejecutando el test: {exc!r}"

@@ -27,7 +27,7 @@ async def test_run_plan_dispatches_by_type_and_keeps_order(monkeypatch):
         seen.append(("endpoint", tc.id))
         return TestResult(test_case_id=tc.id, status="pass", detail="ok")
 
-    async def fake_run_ui(tc, session_id):
+    async def fake_run_ui(tc, session_id, **kwargs):
         seen.append(("ui", tc.id, session_id))
         return TestResult(test_case_id=tc.id, status="pass", detail="ok")
 

@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { downloadReport, executePlan, generatePlan, sendChat } from './api/client';
+import {
+  answerSweepQuestion, downloadReport, executePlan, forgetRepo, getChatHistory, getIntegrations, sendChat,
+  submitSweepLogin, sweepPlan,
+} from './api/client';
+import IntegrationsPage from './components/IntegrationsPage';
+import LivePanel from './components/LivePanel';
+import RepoPicker, { RepoNeedsToken } from './components/RepoPicker';
 
 const welcomeMessage = {
   role: 'assistant',
@@ -102,6 +108,94 @@ function QaStepper({ context, hasPlan }) {
   );
 }
 
+function SweepPanel({ events, question, onAnswer, loginRequired, onSubmitLogin, isLoading, onRetry }) {
+  const [answer, setAnswer] = useState('');
+  const [loginUser, setLoginUser] = useState('');
+  const [loginPass, setLoginPass] = useState('');
+  if (!events.length && !question && !loginRequired) return null;
+
+  return (
+    <section className="sweep-panel">
+      <span className="eyebrow">Barrido de pantallas</span>
+      {events.map((event, index) => (
+        <div className="sweep-event" key={index}>
+          {event.type === 'error' ? (
+            <>
+              <p className="sweep-error">{event.url === 'plan' ? event.detail : `${event.url}: ${event.detail}`}</p>
+              {event.retry && (
+                <button type="button" className="execute-button" onClick={onRetry} disabled={isLoading}>
+                  Reintentar generar el plan
+                </button>
+              )}
+            </>
+          ) : event.type === 'launching' ? (
+            <p className="sweep-visiting">{event.detail}</p>
+          ) : event.type === 'page_result' ? (
+            <>
+              <p>{event.url} — {event.summary}</p>
+              {event.screenshot_b64 && (
+                <img src={`data:image/png;base64,${event.screenshot_b64}`} alt={event.url} />
+              )}
+            </>
+          ) : (
+            <p className="sweep-visiting">Visitando {event.url}...</p>
+          )}
+        </div>
+      ))}
+      {question && (
+        <div className="sweep-question">
+          <p><strong>{question.url}</strong>: {question.question}</p>
+          <textarea
+            value={answer}
+            onChange={(event) => setAnswer(event.target.value)}
+            rows={2}
+            placeholder="Tu respuesta..."
+          />
+          <button
+            disabled={!answer.trim() || isLoading}
+            onClick={() => {
+              onAnswer(answer);
+              setAnswer('');
+            }}
+          >
+            Responder
+          </button>
+        </div>
+      )}
+      {loginRequired && (
+        <div className="sweep-login">
+          <p>
+            <strong>{loginRequired.url}</strong> pide iniciar sesión y no estaba definido antes.
+            Ingresá credenciales de prueba (no reales) para continuar.
+          </p>
+          <input
+            type="text"
+            value={loginUser}
+            onChange={(event) => setLoginUser(event.target.value)}
+            placeholder="Usuario de prueba"
+          />
+          <input
+            type="password"
+            value={loginPass}
+            onChange={(event) => setLoginPass(event.target.value)}
+            placeholder="Contraseña de prueba"
+          />
+          <button
+            disabled={!loginUser.trim() || !loginPass.trim() || isLoading}
+            onClick={() => {
+              onSubmitLogin(loginUser, loginPass);
+              setLoginUser('');
+              setLoginPass('');
+            }}
+          >
+            Iniciar sesión y continuar
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function App() {
   const [sessionId, setSessionId] = useState('');
   const [messages, setMessages] = useState([welcomeMessage]);
@@ -119,6 +213,12 @@ export default function App() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [sweepEvents, setSweepEvents] = useState([]);
+  const [sweepQuestion, setSweepQuestion] = useState(null);
+  const [sweepLoginRequired, setSweepLoginRequired] = useState(null);
+  const [view, setView] = useState('chat');
+  // null mientras carga: no se muestra el bloqueo hasta saber si hay integraciones.
+  const [integrations, setIntegrations] = useState(null);
   const chatScrollRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -127,27 +227,53 @@ export default function App() {
     if (chatScroll) {
       chatScroll.scrollTop = chatScroll.scrollHeight;
     }
-  }, [messages, isLoading, error, plan]);
+  }, [messages, isLoading, error, plan, context.wants_repo, context.repo_url, integrations]);
 
-  // Al recargar la página se reinicia el chat para empezar una sesión nueva.
   useEffect(() => {
+    getIntegrations().then(setIntegrations).catch(() => setIntegrations(null));
+  }, []);
+
+  const hasIntegration = Boolean(integrations?.github || integrations?.bitbucket);
+  // el usuario dijo que tiene repo y todavia no lo eligio: aviso de token o lista de repos bajo el chat.
+  const needsRepo = Boolean(context.wants_repo) && !context.repo_url;
+  const repoName = context.repo_url ? context.repo_url.replace(/^https:\/\/[^/]+\//, '') : '';
+
+  const handleRepoSelected = (data) => {
+    setSessionId(data.session_id);
     try {
-      localStorage.removeItem(SESSION_STORAGE_KEY);
+      localStorage.setItem(SESSION_STORAGE_KEY, data.session_id);
     } catch {
-      // localStorage no disponible: no hay nada que limpiar
+      // localStorage no disponible: la sesion sigue en memoria
     }
-    setSessionId('');
-    setMessages([welcomeMessage]);
-    setContext({ objetivo: false, acceso: false, alcance: false, repo: false, target_url: null });
-    setPlan(null);
-    setResults(null);
-    setExecutionProgress(null);
-    setReport(null);
-    setError('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = '44px';
-      textareaRef.current.style.overflowY = 'hidden';
+    setContext(data.context);
+    appendMessage('assistant', data.reply);
+    if (data.ready_for_plan && !plan) runSweepPlan(data.session_id);
+  };
+
+  // recupera la conversacion si el usuario refresca la pagina (no recupera plan/resultados,
+  // el backend no tiene un endpoint para volver a pedir el ultimo plan generado sin regenerarlo).
+  useEffect(() => {
+    let savedSessionId;
+    try {
+      savedSessionId = localStorage.getItem(SESSION_STORAGE_KEY);
+    } catch {
+      return;
     }
+    if (!savedSessionId) return;
+
+    getChatHistory(savedSessionId)
+      .then((history) => {
+        setSessionId(history.session_id);
+        setMessages(history.messages.length ? history.messages : [welcomeMessage]);
+        setContext(history.context);
+      })
+      .catch(() => {
+        try {
+          localStorage.removeItem(SESSION_STORAGE_KEY);
+        } catch {
+          // localStorage no disponible (modo privado, etc): no hay nada que limpiar
+        }
+      });
   }, []);
 
   const appendMessage = (role, content) => {
@@ -155,6 +281,7 @@ export default function App() {
   };
 
   const resetChat = () => {
+    if (sessionId) forgetRepo(sessionId).catch(() => {});
     setSessionId('');
     setMessages([welcomeMessage]);
     setInput('');
@@ -164,6 +291,9 @@ export default function App() {
     setReport(null);
     setContext({ objetivo: false, acceso: false, alcance: false, repo: false, target_url: null });
     setError('');
+    setSweepEvents([]);
+    setSweepQuestion(null);
+    setSweepLoginRequired(null);
     try {
       localStorage.removeItem(SESSION_STORAGE_KEY);
     } catch {
@@ -180,18 +310,54 @@ export default function App() {
     textarea.style.overflowY = textarea.scrollHeight > 200 ? 'auto' : 'hidden';
   };
 
-  const runGeneratePlan = async (id) => {
+  const runSweepPlan = async (id) => {
     setIsLoading(true);
     setError('');
 
     try {
-      const data = await generatePlan(id);
-      setPlan(data);
-      appendMessage('assistant', `Plan generado: ${data.test_cases.length} casos de prueba.`);
+      await sweepPlan(id, (event) => {
+        if (event.type === 'question') {
+          setSweepQuestion({ url: event.url, question: event.question });
+        } else if (event.type === 'login_required') {
+          setSweepLoginRequired({ url: event.url });
+        } else if (event.type === 'plan_ready') {
+          setPlan(event.plan);
+          appendMessage('assistant', `Plan generado: ${event.plan.test_cases.length} casos de prueba.`);
+        } else {
+          setSweepEvents((current) => [...current, event]);
+        }
+      });
     } catch (err) {
       setError(err.message || 'No se pudo generar el plan');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSubmitSweepLogin = async (username, password) => {
+    if (!sessionId || !sweepLoginRequired) return;
+
+    setError('');
+    try {
+      await submitSweepLogin(sessionId, username, password);
+      setSweepLoginRequired(null);
+      await runSweepPlan(sessionId);
+    } catch (err) {
+      setError(err.message || 'No se pudo iniciar sesion');
+    }
+  };
+
+  const handleAnswerSweepQuestion = async (answerText) => {
+    if (!sessionId || !sweepQuestion) return;
+
+    setError('');
+    try {
+      await answerSweepQuestion(sessionId, answerText);
+      appendMessage('user', answerText);
+      setSweepQuestion(null);
+      await runSweepPlan(sessionId);
+    } catch (err) {
+      setError(err.message || 'No se pudo enviar la respuesta');
     }
   };
 
@@ -207,7 +373,12 @@ export default function App() {
         setExecutionProgress({ index: progress.index, total: progress.total });
         setResults((current) => [...current, progress.result]);
       });
-      appendMessage('assistant', `Ejecución completada: ${data.results.length} casos procesados.`);
+      appendMessage(
+        'assistant',
+        data.paused
+          ? `Ejecución pausada tras ${data.results.length} casos: necesito tu respuesta para seguir.`
+          : `Ejecución completada: ${data.results.length} casos procesados.`,
+      );
     } catch (err) {
       setError(err.message || 'No se pudo ejecutar el plan');
     } finally {
@@ -267,7 +438,7 @@ export default function App() {
       // sin esperar que el usuario aprete un boton.
       if (data.ready_for_plan && !plan) {
         setIsLoading(false);
-        await runGeneratePlan(data.session_id);
+        await runSweepPlan(data.session_id);
         return;
       }
     } catch (err) {
@@ -291,7 +462,37 @@ export default function App() {
           <span>AgenteQA</span>
         </div>
 
-        <QaStepper context={context} hasPlan={Boolean(plan)} />
+        <nav className="sidebar-nav" aria-label="Secciones">
+          <button
+            type="button"
+            className={`nav-item ${view === 'chat' ? 'active' : ''}`}
+            aria-current={view === 'chat' ? 'page' : undefined}
+            onClick={() => setView('chat')}
+          >
+            <span className="nav-icon" aria-hidden="true">◆</span>
+            <span className="nav-label">Agente</span>
+          </button>
+          <button
+            type="button"
+            className={`nav-item ${view === 'integrations' ? 'active' : ''}`}
+            aria-current={view === 'integrations' ? 'page' : undefined}
+            onClick={() => setView('integrations')}
+          >
+            <span className="nav-icon" aria-hidden="true">⚙</span>
+            <span className="nav-label">Integraciones</span>
+            <span className={`nav-dot ${hasIntegration ? 'on' : ''}`} aria-label={hasIntegration ? 'conectado' : 'sin conectar'} />
+          </button>
+        </nav>
+
+        {view === 'chat' && repoName && (
+          <div className="repo-chip">
+            <span className="repo-chip-label">Repositorio</span>
+            <strong title={context.repo_url}>{repoName}</strong>
+            <button type="button" className="link-button" onClick={resetChat}>Cambiar (nueva sesión)</button>
+          </div>
+        )}
+
+        {view === 'chat' && <QaStepper context={context} hasPlan={Boolean(plan)} />}
       </aside>
 
       <main className="conversation-area">
@@ -314,6 +515,9 @@ export default function App() {
             </span>
           ))}
         </div>
+        {view === 'integrations' ? (
+          <IntegrationsPage integrations={integrations} onChange={setIntegrations} onBack={() => setView('chat')} />
+        ) : (
         <section className="chat-content">
           <div className="chat-scroll" ref={chatScrollRef}>
             <div className="messages">
@@ -351,6 +555,30 @@ export default function App() {
             </div>
 
             {error && <div className="error-message">{error}</div>}
+
+            {needsRepo && !hasIntegration && <RepoNeedsToken onGoToIntegrations={() => setView('integrations')} />}
+            {needsRepo && hasIntegration && (
+              <RepoPicker sessionId={sessionId} onSelected={handleRepoSelected} onGoToIntegrations={() => setView('integrations')} />
+            )}
+
+            <SweepPanel
+              events={sweepEvents}
+              question={sweepQuestion}
+              onAnswer={handleAnswerSweepQuestion}
+              loginRequired={sweepLoginRequired}
+              onSubmitLogin={handleSubmitSweepLogin}
+              isLoading={isLoading}
+              onRetry={() => {
+                // el error viejo con boton se quita; el barrido ya hecho se conserva en el backend.
+                setSweepEvents((current) => current.filter((event) => !event.retry));
+                runSweepPlan(sessionId);
+              }}
+            />
+
+            <LivePanel
+              sessionId={sessionId}
+              onProgress={(progress) => setResults((current) => [...(current || []), progress.result])}
+            />
 
             {plan && (
               <section className="plan-card">
@@ -393,9 +621,26 @@ export default function App() {
                   {results.map((result) => (
                     <div className="result-item" key={`${result.test_case_id}-${result.detail}`}>
                       <span className={`result-status ${result.status}`}>{result.status}</span>
-                      <div>
+                      <div className="result-body">
                         <strong>{result.test_case_id}</strong>
                         <p>{result.detail}</p>
+                        {result.suspected_cause && (
+                          <p className="result-cause">
+                            <strong>Causa probable</strong> ({result.suspected_cause.confidence}):{' '}
+                            <code>
+                              {result.suspected_cause.file}
+                              {result.suspected_cause.line ? `:${result.suspected_cause.line}` : ''}
+                            </code>
+                            {' — '}{result.suspected_cause.explanation}
+                          </p>
+                        )}
+                        {result.screenshot_b64 && (
+                          <img
+                            className="result-screenshot"
+                            src={`data:image/png;base64,${result.screenshot_b64}`}
+                            alt={`Captura de ${result.test_case_id}`}
+                          />
+                        )}
                       </div>
                     </div>
                   ))}
@@ -425,7 +670,7 @@ export default function App() {
                   event.currentTarget.form.requestSubmit();
                 }
               }}
-              placeholder="Escribe un mensaje a AgenteQA..."
+              placeholder={needsRepo ? 'Elige el repositorio en la lista, o escribe si prefieres seguir sin repo...' : 'Escribe un mensaje a AgenteQA...'}
               rows={1}
               aria-label="Mensaje"
             />
@@ -450,6 +695,7 @@ export default function App() {
 
           <p className="disclaimer">AgenteQA puede cometer errores. Revisa el plan antes de ejecutar las pruebas.</p>
         </section>
+        )}
       </main>
     </div>
   );
