@@ -126,7 +126,7 @@ links: [runner, report]
       from: agent
       by: claude
 
-files: [backend/app/repo/**, backend/app/routers/repo.py, frontend/src/components/RepoConnect.jsx]
+files: [backend/app/repo/**, backend/app/routers/repo.py]
 
 ## Levantar el repo de forma aislada {#runner}
 
@@ -197,9 +197,9 @@ needs: [chat, plan, execution, report]
       tech: api/client.js::downloadReport
 - [x] Recupera el historial de chat al refrescar (via `session_id` en localStorage)
       tech: App.jsx (useEffect inicial + getChatHistory)
-- [ ] Campo para conectar el token del repo, y mostrar el navegador en vivo con cuadro de respuesta cuando el agente pausa {#live-ui}
-      tech: LivePanel (WS solo lectura, sin eventos de entrada), reutiliza UI de SweepPanel para preguntas/login
-      from: agent
+- [x] Pantalla de Integraciones para conectar GitHub o Bitbucket, y el chat bloqueado con un aviso hasta que haya al menos una {#live-ui}
+      tech: components/IntegrationsPage.jsx + IntegrationGate.jsx (modal); nav Agente/Integraciones en la sidebar; backend /api/integrations (token por proveedor, solo memoria)
+      by: claude
 - [x] Mostrar el navegador en vivo y el cuadro de respuesta cuando la ejecucion pausa
       tech: components/LivePanel.jsx (img con el ultimo frame JPEG, clases sweep-*), api/client.js::openLiveSocket, proxy /ws en vite.config.js
       by: claude
@@ -208,7 +208,7 @@ needs: [chat, plan, execution, report]
 - [ ] Dashboard visual de resultados mas alla de una lista simple pass/fail
       from: roadmap
 
-files: [frontend/src/App.jsx, frontend/src/api/client.js, frontend/src/styles.css, frontend/src/components/LivePanel.jsx, frontend/vite.config.js]
+files: [frontend/src/App.jsx, frontend/src/api/client.js, frontend/src/styles.css, frontend/src/components/**, frontend/vite.config.js]
 
 ## decisions
 
@@ -239,3 +239,4 @@ files: [frontend/src/App.jsx, frontend/src/api/client.js, frontend/src/styles.cs
 - Pista D (2026-09-30): el repo levantado queda arriba durante toda la sesion y se apaga al olvidar el repo (`DELETE /api/repo/{id}`, cambio de URL) o al cerrar el backend, no al terminar cada ejecucion: el runner publica puertos al azar, y relevantarlo dejaria las URLs del plan apuntando a un puerto viejo. La causa probable se calcula en el momento en que falla cada caso (logs frescos) y se guarda en `Result`; el reporte solo la presenta. El LLM solo puede señalar archivos que existen en el repo; si inventa uno, no se muestra causa.
 - Apagado del repo levantado (2026-09-30, pedido del owner; reemplaza "queda arriba toda la sesion"): se apaga (1) al terminar una ejecucion completa (no al pausar), (2) cuando la pagina del agente se cierra o el usuario pierde internet: nadie mira el WebSocket de la sesion por mas de 90 s y no hay barrido/ejecucion en curso. Un refresco reconecta en segundos, asi que no lo apaga. Si despues se vuelve a barrer o ejecutar, se relevanta solo: se recuerda cual de las URLs era la app (por posicion) y las URLs del plan guardado se mudan al puerto nuevo.
 - E2E real (2026-09-30) contra `github.com/TortugaDelSur/agenteqa-demo` (Flask + compose, bug a proposito en `/api/users/<id>`): chat -> clone -> barrido levanta el repo -> plan -> ejecucion en vivo -> reporte con causa `app/main.py:44` (confianza alta). Encontro 5 bugs que los tests con mocks no veian: `.env` con claves extra tumbaba el backend (y pydantic imprimia parte del secreto al log), login en la home en bucle, URLs del plan con el puerto dicho en el chat, WS que no detectaba cierre de pagina, y Playwright del `.venv` nuevo sin su navegador (`playwright install chromium`). Apagado verificado en real: al terminar la ejecucion, por pagina cerrada (~111 s) y NO por refresco. Ningun secreto (API key, RUNNER_TOKEN) en DB, logs ni reporte; las credenciales de prueba (`demo123`) si quedan en la DB, como ya estaba aceptado.
+- Integraciones (2026-09-30, pedido del owner): el token de GitHub/Bitbucket se configura en una pantalla "Integraciones" antes de chatear, y el chat queda bloqueado (modal) hasta que haya al menos una conectada. Por eso el token pasa de ser por sesion a ser de la instalacion (uno por proveedor), sigue SOLO en memoria: si el backend se reinicia, el modal vuelve a pedirlo. Valido mientras AgenteQA es local y de un usuario; con multiusuario pasa a ser por usuario (tarea de auth). El bloqueo es de UX en el front; el backend no rechaza chats sin integracion.

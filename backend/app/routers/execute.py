@@ -170,7 +170,7 @@ async def _execute(
 
             repo = workspace.repo_path(session_id)
             if repo is not None and result.status != "pass" and not blocked_host:
-                secrets = credentials.known_secrets(session_id) + [context.password or ""]
+                secrets = credentials.known_secrets() + [context.password or ""]
                 result.suspected_cause = await diagnose(session_id, repo, tc, result, secrets)
 
             db.add(Result(

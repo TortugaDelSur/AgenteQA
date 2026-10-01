@@ -18,23 +18,22 @@ URL = "https://github.com/acme/app"
 @pytest.fixture(autouse=True)
 def _clean_state():
     yield
-    for sid in {sid for sid, _ in credentials._tokens} | set(workspace._clones) | set(workspace._failed):
-        credentials.forget(sid)
+    credentials._tokens.clear()
+    for sid in set(workspace._clones) | set(workspace._failed):
         workspace.forget(sid)
 
 
 # --- credentials ---
 
-def test_credentials_in_memory():
-    assert credentials.status("s1") == {"github": False, "bitbucket": False}
-    credentials.set_token("s1", "github", TOKEN)
-    assert credentials.get_token("s1", "github") == TOKEN
-    assert credentials.get_token("s1", "bitbucket") is None
-    assert credentials.status("s1") == {"github": True, "bitbucket": False}
-    assert credentials.known_secrets("s1") == [TOKEN]
-    assert credentials.known_secrets("otra") == []
-    credentials.forget("s1")
-    assert credentials.status("s1") == {"github": False, "bitbucket": False}
+def test_credentials_in_memory_one_per_provider():
+    assert credentials.status() == {"github": False, "bitbucket": False}
+    credentials.set_token("github", TOKEN)
+    assert credentials.get_token("github") == TOKEN
+    assert credentials.get_token("bitbucket") is None
+    assert credentials.status() == {"github": True, "bitbucket": False}
+    assert credentials.known_secrets() == [TOKEN]
+    credentials.forget("github")
+    assert credentials.status() == {"github": False, "bitbucket": False}
 
 
 # --- clone ---
@@ -215,7 +214,7 @@ def _fake_clone(calls):
 def test_repo_context_clones_once_and_reclones_on_new_url(monkeypatch):
     calls = []
     monkeypatch.setattr(workspace, "clone", _fake_clone(calls))
-    credentials.set_token("s", "github", TOKEN)
+    credentials.set_token("github", TOKEN)
 
     out = workspace.repo_context("s", URL)
     assert "Token: conectado" in out and "Django" in out and TOKEN not in out
@@ -241,7 +240,7 @@ def test_repo_context_clone_failure(monkeypatch):
         raise CloneError("nope")
     monkeypatch.setattr(workspace, "clone", boom)
     out = workspace.repo_context("s", URL)
-    assert "No se pudo clonar" in out and "Conectar repo" in out and "no conectado" in out
+    assert "No se pudo clonar" in out and "Integraciones" in out and "no conectado" in out
     assert workspace.repo_path("s") is None
 
     # mismo url + token: no se reintenta en cada turno (cada intento puede bloquear 120s).
@@ -249,27 +248,31 @@ def test_repo_context_clone_failure(monkeypatch):
     assert attempts == [None]
 
     # token nuevo: si se reintenta.
-    credentials.set_token("s", "github", TOKEN)
-    assert "Conectar repo" not in workspace.repo_context("s", URL)
+    credentials.set_token("github", TOKEN)
+    assert "Integraciones" not in workspace.repo_context("s", URL)
     assert attempts == [None, TOKEN]
 
 
 # --- router + chat ---
 
-def test_repo_router(client, monkeypatch):
-    resp = client.post("/api/repo/credentials", json={"session_id": "s", "provider": "github", "token": f" {TOKEN} "})
+def test_integrations_router(client, monkeypatch):
+    assert client.get("/api/integrations").json() == {"github": False, "bitbucket": False}
+
+    resp = client.post("/api/integrations", json={"provider": "github", "token": f" {TOKEN} "})
     assert resp.status_code == 200
     assert resp.json() == {"github": True, "bitbucket": False}
     assert TOKEN not in resp.text
-    assert credentials.get_token("s", "github") == TOKEN
+    assert credentials.get_token("github") == TOKEN
+    assert client.get("/api/integrations").json() == {"github": True, "bitbucket": False}
+    assert client.post("/api/integrations", json={"provider": "gitlab", "token": "x"}).status_code == 422
+    assert client.post("/api/integrations", json={"provider": "github", "token": ""}).status_code == 422
 
     assert client.get("/api/repo/status", params={"session_id": "s"}).json() == {
         "github": True, "bitbucket": False, "cloned": False,
     }
-    assert client.post("/api/repo/credentials", json={"session_id": "s", "provider": "gitlab", "token": "x"}).status_code == 422
-
+    assert client.delete("/api/integrations/github").json() == {"github": False, "bitbucket": False}
+    assert client.delete("/api/integrations/gitlab").status_code == 422
     assert client.delete("/api/repo/s").json() == {"status": "forgotten"}
-    assert credentials.status("s") == {"github": False, "bitbucket": False}
 
 
 def test_chat_sends_repo_context_and_redacts_known_token(client, monkeypatch):
@@ -278,7 +281,7 @@ def test_chat_sends_repo_context_and_redacts_known_token(client, monkeypatch):
     monkeypatch.setattr(chat_router, "llm_chat", lambda history, page_snapshot=None: ("ok", ContextProgress(repo=True, repo_url=URL)))
     sid = client.post("/api/chat", json={"message": URL}).json()["session_id"]
 
-    credentials.set_token(sid, "github", "plain-secret-token")
+    credentials.set_token("github", "plain-secret-token")
 
     def fake(history, page_snapshot=None):
         seen.extend(history)

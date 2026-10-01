@@ -28,9 +28,9 @@ def post_chat(req: ChatRequest, db: OrmSession = Depends(get_db)) -> ChatRespons
     previous_context = ContextProgress(**json.loads(session.context_json))
     page_snapshot = inspect_page(previous_context.target_url) if previous_context.target_url else None
 
-    # si el usuario pega un token en el chat, no llega ni a SQLite ni al LLM (patrones + el token
-    # que haya cargado en "Conectar repo").
-    db.add(Message(session_id=session.id, role="user", content=redact(req.message, known_secrets(session.id))))
+    # si el usuario pega un token en el chat, no llega ni a SQLite ni al LLM (patrones + los tokens
+    # cargados en Integraciones).
+    db.add(Message(session_id=session.id, role="user", content=redact(req.message, known_secrets())))
     db.flush()
 
     history = [

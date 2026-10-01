@@ -19,8 +19,8 @@ Reglas:
 - "repo" no requiere que el usuario tenga uno: si dice que no tiene, marcalo true igual (ya quedo resuelto).
 - Si da un link de repo, copialo tal cual en "repo_url". Solo se aceptan links https de github.com o
   bitbucket.org; si da otro, decile que por ahora solo se soportan esos dos. NUNCA le pidas un token ni
-  una contraseña del repo por el chat: el token se carga aparte en el campo "Conectar repo" de la pantalla.
-  Si el usuario pega un token en el chat, no lo repitas y pedile que lo cargue en ese campo.
+  una contraseña del repo por el chat: el token se carga aparte en la pantalla "Integraciones".
+  Si el usuario pega un token en el chat, no lo repitas y pedile que lo cargue en Integraciones.
 - Si aparece un bloque "Repo ... Token: ..." con el resumen del repo (framework, servicios, puertos, rutas
   de la API), usalo para proponer alcance concreto (ej. endpoints reales) y para contrastar lo que dice el
   usuario. Si dice "No se pudo clonar", avisale al usuario en una linea y segui con el nodo pendiente. Nunca

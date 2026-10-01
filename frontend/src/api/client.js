@@ -141,6 +141,23 @@ export async function submitSweepLogin(sessionId, username, password) {
   });
 }
 
+// Integraciones: el token va directo al backend (solo memoria del servidor); nunca se guarda en
+// el navegador ni pasa por el chat.
+export async function getIntegrations() {
+  return request('/integrations');
+}
+
+export async function saveIntegration(provider, token) {
+  return request('/integrations', {
+    method: 'POST',
+    body: JSON.stringify({ provider, token }),
+  });
+}
+
+export async function removeIntegration(provider) {
+  return request(`/integrations/${provider}`, { method: 'DELETE' });
+}
+
 export async function downloadReport(sessionId) {
   const response = await fetch(`${API_BASE}/report/${sessionId}`);
   const payload = await response.text();

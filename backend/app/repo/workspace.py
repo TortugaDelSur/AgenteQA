@@ -37,11 +37,11 @@ def forget(session_id: str) -> None:
 def repo_context(session_id: str, repo_url: str) -> str:
     """Bloque de contexto del repo para el chat: estado del token + resumen (o por que no hay)."""
     provider = repo_provider(repo_url) or "github"
-    connected = credentials.status(session_id).get(provider, False)
+    connected = credentials.status().get(provider, False)
     header = f"Repo {repo_url} ({provider}). Token: {'conectado' if connected else 'no conectado'}."
 
-    hint = "" if connected else " Si es privado, pedile al usuario que cargue el token en \"Conectar repo\"."
-    token = credentials.get_token(session_id, provider)
+    hint = "" if connected else " Si es privado, pedile al usuario que conecte el token en la pantalla \"Integraciones\"."
+    token = credentials.get_token(provider)
     entry = _clones.get(session_id)
     if entry is None or entry[0] != repo_url:
         if _failed.get(session_id) == (repo_url, token):

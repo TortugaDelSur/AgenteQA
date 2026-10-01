@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  answerSweepQuestion, downloadReport, executePlan, getChatHistory, sendChat, submitSweepLogin, sweepPlan,
+  answerSweepQuestion, downloadReport, executePlan, getChatHistory, getIntegrations, sendChat, submitSweepLogin,
+  sweepPlan,
 } from './api/client';
+import IntegrationGate from './components/IntegrationGate';
+import IntegrationsPage from './components/IntegrationsPage';
 import LivePanel from './components/LivePanel';
-import RepoConnect from './components/RepoConnect';
 
 const welcomeMessage = {
   role: 'assistant',
@@ -158,6 +160,9 @@ export default function App() {
   const [sweepEvents, setSweepEvents] = useState([]);
   const [sweepQuestion, setSweepQuestion] = useState(null);
   const [sweepLoginRequired, setSweepLoginRequired] = useState(null);
+  const [view, setView] = useState('chat');
+  // null mientras carga: no se muestra el bloqueo hasta saber si hay integraciones.
+  const [integrations, setIntegrations] = useState(null);
   const chatScrollRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -167,6 +172,13 @@ export default function App() {
       chatScroll.scrollTop = chatScroll.scrollHeight;
     }
   }, [messages, isLoading, error, plan]);
+
+  useEffect(() => {
+    getIntegrations().then(setIntegrations).catch(() => setIntegrations(null));
+  }, []);
+
+  const hasIntegration = Boolean(integrations?.github || integrations?.bitbucket);
+  const chatBlocked = integrations !== null && !hasIntegration;
 
   // recupera la conversacion si el usuario refresca la pagina (no recupera plan/resultados,
   // el backend no tiene un endpoint para volver a pedir el ultimo plan generado sin regenerarlo).
@@ -329,7 +341,7 @@ export default function App() {
   const handleSendMessage = async (event) => {
     event.preventDefault();
     const value = input.trim();
-    if (!value || isLoading) return;
+    if (!value || isLoading || chatBlocked) return;
 
     setMessages((current) => [...current, { role: 'user', content: value }]);
     setInput('');
@@ -373,12 +385,37 @@ export default function App() {
           <span>AgenteQA</span>
         </div>
 
-        <QaStepper context={context} hasPlan={Boolean(plan)} />
-        <RepoConnect sessionId={sessionId} repoUrl={context?.repo_url} />
+        <nav className="sidebar-nav" aria-label="Secciones">
+          <button
+            type="button"
+            className={`nav-item ${view === 'chat' ? 'active' : ''}`}
+            aria-current={view === 'chat' ? 'page' : undefined}
+            onClick={() => setView('chat')}
+          >
+            <span className="nav-icon" aria-hidden="true">◆</span>
+            <span className="nav-label">Agente</span>
+          </button>
+          <button
+            type="button"
+            className={`nav-item ${view === 'integrations' ? 'active' : ''}`}
+            aria-current={view === 'integrations' ? 'page' : undefined}
+            onClick={() => setView('integrations')}
+          >
+            <span className="nav-icon" aria-hidden="true">⚙</span>
+            <span className="nav-label">Integraciones</span>
+            <span className={`nav-dot ${hasIntegration ? 'on' : ''}`} aria-label={hasIntegration ? 'conectado' : 'sin conectar'} />
+          </button>
+        </nav>
+
+        {view === 'chat' && <QaStepper context={context} hasPlan={Boolean(plan)} />}
       </aside>
 
       <main className="conversation-area">
+        {view === 'integrations' ? (
+          <IntegrationsPage integrations={integrations} onChange={setIntegrations} onBack={() => setView('chat')} />
+        ) : (
         <section className="chat-content">
+          {chatBlocked && <IntegrationGate onGoToIntegrations={() => setView('integrations')} />}
           <div className="chat-scroll" ref={chatScrollRef}>
             <div className="messages">
               {messages.map((message, index) => (
@@ -506,7 +543,8 @@ export default function App() {
                   event.currentTarget.form.requestSubmit();
                 }
               }}
-              placeholder="Escribe un mensaje a AgenteQA..."
+              placeholder={chatBlocked ? 'Conecta GitHub o Bitbucket en Integraciones para empezar' : 'Escribe un mensaje a AgenteQA...'}
+              disabled={chatBlocked}
               rows={1}
               aria-label="Mensaje"
             />
@@ -526,6 +564,7 @@ export default function App() {
 
           <p className="disclaimer">AgenteQA puede cometer errores. Revisa el plan antes de ejecutar las pruebas.</p>
         </section>
+        )}
       </main>
     </div>
   );

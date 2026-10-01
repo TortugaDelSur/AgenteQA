@@ -158,8 +158,7 @@ class RepoInfo(BaseModel):
     api_routes: list[str] = []
 
 
-class RepoCredentialsRequest(BaseModel):
-    session_id: str
+class IntegrationRequest(BaseModel):
     provider: Literal["github", "bitbucket"]
     token: str = Field(min_length=1, max_length=500)
 
