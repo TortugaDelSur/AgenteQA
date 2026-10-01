@@ -161,6 +161,23 @@ class RepoInfo(BaseModel):
 class IntegrationRequest(BaseModel):
     provider: Literal["github", "bitbucket"]
     token: str = Field(min_length=1, max_length=500)
+    # solo Bitbucket: email de la cuenta Atlassian para Basic auth del API token (sin el, Bearer).
+    email: str | None = Field(default=None, max_length=200)
+
+
+class RepoSummary(BaseModel):
+    provider: Literal["github", "bitbucket"]
+    full_name: str
+    url: str
+    private: bool
+    description: str | None = None
+    updated_at: str | None = None
+
+
+class RepoSelectRequest(BaseModel):
+    session_id: str | None = None
+    provider: Literal["github", "bitbucket"]
+    full_name: str = Field(min_length=3, max_length=200)
 
 
 class SuspectedCause(BaseModel):

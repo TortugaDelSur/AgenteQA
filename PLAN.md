@@ -9,6 +9,9 @@ Agente QA conversacional: charla para juntar contexto, arma un plan de pruebas, 
 - [x] Aceptar "quiero validar/probar un repo" como pedido principal: pide el link primero y, con repo, no pide URL
       tech: llm/prompts.py::CHAT_SYSTEM_PROMPT (intro, nodo acceso, orden, fuera de alcance)
       by: claude
+- [x] Elegir el repo a probar de una lista (los repos a los que el token tiene acceso) en vez de pegar un link; el chat se habilita recien al elegir
+      tech: components/RepoPicker.jsx; GET /api/repos + POST /api/repo/select (solo repos de la lista, clona al elegir); chat.py ignora repo_url del LLM
+      by: claude
 - [x] Contrasta lo que dice el usuario contra la pagina real en cada turno (inspeccion estatica, sin login)
       tech: chat.py (llama `inspect_page`), llm/page_inspector.py::inspect_page
 - [x] Sugiere paginas reales encontradas en la navegacion en vez de que el usuario tipee URLs a mano
@@ -120,6 +123,11 @@ links: [runner, report]
       tech: campo password en la UI -> POST /api/repo/credentials; repo/credentials.py guarda solo en memoria por sesion; el LLM solo ve "conectado"
       from: agent
       by: claude
+- [x] Verificar el token contra el proveedor al conectarlo, y listar los repos a los que da acceso
+      tech: repo/providers.py (GitHub /user/repos, Bitbucket /2.0/repositories?role=member con API token + email opcional), hasta 300 repos
+      by: claude
+- [ ] Probar el listado y el clone contra una cuenta real de Bitbucket (solo verificado con la documentacion y mocks)
+      from: agent
 - [x] Bajar una copia liviana del repo a una carpeta temporal por sesion y borrarla al terminar
       tech: git clone --depth 1 con validacion de dominio del proveedor (anti-SSRF)
       from: agent
@@ -245,3 +253,4 @@ files: [frontend/src/App.jsx, frontend/src/api/client.js, frontend/src/styles.cs
 - Integraciones (2026-09-30, pedido del owner): el token de GitHub/Bitbucket se configura en una pantalla "Integraciones" antes de chatear, y el chat queda bloqueado (modal) hasta que haya al menos una conectada. Por eso el token pasa de ser por sesion a ser de la instalacion (uno por proveedor), sigue SOLO en memoria: si el backend se reinicia, el modal vuelve a pedirlo. Valido mientras AgenteQA es local y de un usuario; con multiusuario pasa a ser por usuario (tarea de auth). El bloqueo es de UX en el front; el backend no rechaza chats sin integracion.
 - Merge del rediseño del front de `main` (5d1e696, 2026-09-30): se toma todo lo visual (fondo animado con burbujas y glow, barra de progreso, boton copiar, loader, estilos). Se descarta su cambio de comportamiento "al recargar se reinicia el chat": rompia recuperar la conversacion al refrescar (tarea ya hecha) y la regla del owner de que refrescar no interfiera con la ejecucion ni con las pausas. A confirmar con quien hizo el rediseño.
 - Prompt del chat (2026-09-30): el agente respondia "no puedo validar repositorios directamente" porque el prompt seguia escrito para el producto anterior (probar una URL desplegada; repo como dato opcional y ultimo; "fuera de alcance" todo lo que no sea juntar contexto). Ahora el repo es el camino principal: si el usuario arranca hablando de un repo se pide el link primero, y con repo el acceso no pide URL (la app se levanta local), solo login y credenciales de prueba. Verificado en 2 corridas reales: listo para el plan en 5 mensajes, target_url null hasta que el barrido levanta el repo.
+- Selector de repositorios (2026-09-30, pedido del owner): el usuario ya no escribe el link del repo. Con el token (obligatorio) el backend lista los repos a los que tiene acceso y el usuario elige uno; el backend solo acepta un repo que aparezca en esa lista (evita links arbitrarios o maliciosos). El LLM ya no puede fijar `repo_url`. Al conectar un token se valida contra el proveedor. GitHub: fine-grained token, `GET /user/repos`. Bitbucket: API token de usuario (scope read:repository) con email opcional, `GET /2.0/repositories?role=member`; el "repository access token" no sirve porque no puede listar. El chat queda deshabilitado hasta elegir repo.

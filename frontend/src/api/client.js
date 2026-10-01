@@ -147,10 +147,27 @@ export async function getIntegrations() {
   return request('/integrations');
 }
 
-export async function saveIntegration(provider, token) {
+export async function saveIntegration(provider, token, email) {
   return request('/integrations', {
     method: 'POST',
-    body: JSON.stringify({ provider, token }),
+    body: JSON.stringify({ provider, token, email: email || null }),
+  });
+}
+
+// Repos a los que dan acceso los tokens conectados: el usuario elige uno, nunca pega un link.
+export async function listRepos() {
+  return request('/repos');
+}
+
+// libera el clon y apaga el repo levantado de esa sesion (al cambiar de repo / empezar de nuevo).
+export async function forgetRepo(sessionId) {
+  return request(`/repo/${sessionId}`, { method: 'DELETE' });
+}
+
+export async function selectRepo(sessionId, provider, fullName) {
+  return request('/repo/select', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId || null, provider, full_name: fullName }),
   });
 }
 

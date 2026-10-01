@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  answerSweepQuestion, downloadReport, executePlan, getChatHistory, getIntegrations, sendChat, submitSweepLogin,
-  sweepPlan,
+  answerSweepQuestion, downloadReport, executePlan, forgetRepo, getChatHistory, getIntegrations, sendChat,
+  submitSweepLogin, sweepPlan,
 } from './api/client';
 import IntegrationGate from './components/IntegrationGate';
 import IntegrationsPage from './components/IntegrationsPage';
 import LivePanel from './components/LivePanel';
+import RepoPicker from './components/RepoPicker';
 
 const welcomeMessage = {
   role: 'assistant',
@@ -228,6 +229,20 @@ export default function App() {
 
   const hasIntegration = Boolean(integrations?.github || integrations?.bitbucket);
   const chatBlocked = integrations !== null && !hasIntegration;
+  // con integracion conectada, el chat arranca recien cuando se elige el repo a probar.
+  const needsRepo = hasIntegration && !context.repo_url;
+  const repoName = context.repo_url ? context.repo_url.replace(/^https:\/\/[^/]+\//, '') : '';
+
+  const handleRepoSelected = (data) => {
+    setSessionId(data.session_id);
+    try {
+      localStorage.setItem(SESSION_STORAGE_KEY, data.session_id);
+    } catch {
+      // localStorage no disponible: la sesion sigue en memoria
+    }
+    setContext((current) => ({ ...current, repo: true, repo_url: data.repo.url }));
+    appendMessage('assistant', `Listo, voy a probar ${data.repo.full_name}. ¿Qué quieres validar en esta aplicación?`);
+  };
 
   // recupera la conversacion si el usuario refresca la pagina (no recupera plan/resultados,
   // el backend no tiene un endpoint para volver a pedir el ultimo plan generado sin regenerarlo).
@@ -260,6 +275,7 @@ export default function App() {
   };
 
   const resetChat = () => {
+    if (sessionId) forgetRepo(sessionId).catch(() => {});
     setSessionId('');
     setMessages([welcomeMessage]);
     setInput('');
@@ -390,7 +406,7 @@ export default function App() {
   const handleSendMessage = async (event) => {
     event.preventDefault();
     const value = input.trim();
-    if (!value || isLoading || chatBlocked) return;
+    if (!value || isLoading || chatBlocked || needsRepo) return;
 
     setMessages((current) => [...current, { role: 'user', content: value }]);
     setInput('');
@@ -462,6 +478,14 @@ export default function App() {
           </button>
         </nav>
 
+        {view === 'chat' && repoName && (
+          <div className="repo-chip">
+            <span className="repo-chip-label">Repositorio</span>
+            <strong title={context.repo_url}>{repoName}</strong>
+            <button type="button" className="link-button" onClick={resetChat}>Cambiar (nueva sesión)</button>
+          </div>
+        )}
+
         {view === 'chat' && <QaStepper context={context} hasPlan={Boolean(plan)} />}
       </aside>
 
@@ -469,6 +493,13 @@ export default function App() {
         {/* hijo directo del area principal (no de .chat-content, que es una columna al 88% con su
             propio z-index): asi el fondo del modal cubre todo el ancho. */}
         {view === 'chat' && chatBlocked && <IntegrationGate onGoToIntegrations={() => setView('integrations')} />}
+        {view === 'chat' && needsRepo && (
+          <RepoPicker
+            sessionId={sessionId}
+            onSelected={handleRepoSelected}
+            onGoToIntegrations={() => setView('integrations')}
+          />
+        )}
         <div className="floating-bubbles" aria-hidden="true">
           {bubbleData.map((bubble, index) => (
             <span
@@ -633,8 +664,12 @@ export default function App() {
                   event.currentTarget.form.requestSubmit();
                 }
               }}
-              placeholder={chatBlocked ? 'Conecta GitHub o Bitbucket en Integraciones para empezar' : 'Escribe un mensaje a AgenteQA...'}
-              disabled={chatBlocked}
+              placeholder={
+                chatBlocked ? 'Conecta GitHub o Bitbucket en Integraciones para empezar'
+                  : needsRepo ? 'Elige el repositorio a probar para empezar'
+                    : 'Escribe un mensaje a AgenteQA...'
+              }
+              disabled={chatBlocked || needsRepo}
               rows={1}
               aria-label="Mensaje"
             />

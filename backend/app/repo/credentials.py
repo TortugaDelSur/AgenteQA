@@ -11,10 +11,20 @@ PROVIDERS = ("github", "bitbucket")
 
 # ponytail: dict global de un solo proceso; con varios workers cada uno tendria el suyo.
 _tokens: dict[str, str] = {}
+# email de la cuenta Atlassian: Bitbucket acepta el API token con Basic email:token (o Bearer sin email).
+_emails: dict[str, str] = {}
 
 
-def set_token(provider: Literal["github", "bitbucket"], token: str) -> None:
+def set_token(provider: Literal["github", "bitbucket"], token: str, email: str | None = None) -> None:
     _tokens[provider] = token
+    if email:
+        _emails[provider] = email
+    else:
+        _emails.pop(provider, None)
+
+
+def get_email(provider: str) -> str | None:
+    return _emails.get(provider)
 
 
 def get_token(provider: str) -> str | None:
@@ -31,3 +41,4 @@ def known_secrets() -> list[str]:
 
 def forget(provider: str) -> None:
     _tokens.pop(provider, None)
+    _emails.pop(provider, None)

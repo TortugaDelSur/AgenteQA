@@ -46,6 +46,10 @@ def post_chat(req: ChatRequest, db: OrmSession = Depends(get_db)) -> ChatRespons
     except (OpenAIError, KeyError, ValueError, json.JSONDecodeError) as e:
         raise HTTPException(status_code=502, detail=f"El LLM no respondio correctamente: {e}")
 
+    # el repo solo lo fija el selector (POST /api/repo/select, que valida contra los repos del token):
+    # lo que diga el LLM no cuenta, asi un link pegado en el chat nunca llega a clonarse.
+    context.repo_url = previous_context.repo_url
+    context.repo = context.repo or previous_context.repo or bool(context.repo_url)
     session.context_json = context.model_dump_json()
     db.add(Message(session_id=session.id, role="assistant", content=reply))
     db.commit()

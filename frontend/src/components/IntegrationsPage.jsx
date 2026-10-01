@@ -16,17 +16,20 @@ const PROVIDERS = [
   {
     id: 'bitbucket',
     name: 'Bitbucket',
-    tokenName: 'Repository access token',
+    tokenName: 'API token',
     steps: [
-      'En el repo: Repository settings → Security → Access tokens.',
-      'Scope: Repositories → Read. Nada más.',
+      'Atlassian account → Security → Create API token with scopes.',
+      'App: Bitbucket. Scope: read:repository:bitbucket. Nada más.',
+      'Ingresa también el email de tu cuenta Atlassian.',
     ],
-    link: 'https://support.atlassian.com/bitbucket-cloud/docs/repository-access-tokens/',
+    link: 'https://support.atlassian.com/bitbucket-cloud/docs/using-api-tokens/',
+    needsEmail: true,
   },
 ];
 
 function IntegrationCard({ provider, connected, onChange }) {
   const [token, setToken] = useState('');
+  const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -36,6 +39,7 @@ function IntegrationCard({ provider, connected, onChange }) {
     try {
       onChange(await action());
       setToken('');
+      setEmail('');
     } catch (err) {
       setError(err.message || 'No se pudo guardar la integración');
     } finally {
@@ -64,9 +68,20 @@ function IntegrationCard({ provider, connected, onChange }) {
         className="integration-form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (token.trim()) run(() => saveIntegration(provider.id, token.trim()));
+          if (token.trim()) run(() => saveIntegration(provider.id, token.trim(), email.trim()));
         }}
       >
+        {provider.needsEmail && (
+          <input
+            type="email"
+            autoComplete="off"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="Email de tu cuenta Atlassian"
+            aria-label={`Email de ${provider.name}`}
+            disabled={busy}
+          />
+        )}
         <input
           type="password"
           autoComplete="off"
@@ -77,7 +92,7 @@ function IntegrationCard({ provider, connected, onChange }) {
           disabled={busy}
         />
         <button type="submit" disabled={busy || !token.trim()}>
-          {busy ? 'Guardando...' : connected ? 'Reemplazar' : 'Conectar'}
+          {busy ? 'Verificando...' : connected ? 'Reemplazar' : 'Conectar'}
         </button>
         {connected && (
           <button
@@ -103,8 +118,9 @@ export default function IntegrationsPage({ integrations, onChange, onBack }) {
       <span className="eyebrow">Configuración</span>
       <h1>Integraciones</h1>
       <p className="integrations-intro">
-        AgenteQA necesita acceso de lectura a tu repositorio para levantarlo, probarlo y señalar dónde
-        está el problema cuando algo falla. Conecta al menos uno.
+        AgenteQA necesita acceso de lectura a tus repositorios para listarlos, levantar el que elijas,
+        probarlo y señalar dónde está el problema cuando algo falla. Conecta al menos uno: el token se
+        verifica contra el proveedor al conectarlo.
       </p>
       <p className="integrations-note">
         El token se guarda solo en la memoria del servidor: nunca se muestra, no se guarda en el

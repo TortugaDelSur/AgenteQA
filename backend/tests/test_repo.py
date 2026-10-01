@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 
 import app.routers.chat as chat_router
-from app.models.schemas import ContextProgress, RepoInfo
+from app.models.schemas import ContextProgress, RepoInfo, RepoSummary
 from app.repo import clone as clone_mod
-from app.repo import credentials, workspace
+from app.repo import credentials, providers, workspace
 from app.repo.clone import CloneError, cleanup, clone
 from app.repo.inspector import format_repo_summary, inspect_repo
 
@@ -256,6 +256,7 @@ def test_repo_context_clone_failure(monkeypatch):
 # --- router + chat ---
 
 def test_integrations_router(client, monkeypatch):
+    monkeypatch.setattr(providers, "verify", lambda provider, token, email=None: None)
     assert client.get("/api/integrations").json() == {"github": False, "bitbucket": False}
 
     resp = client.post("/api/integrations", json={"provider": "github", "token": f" {TOKEN} "})
@@ -275,22 +276,104 @@ def test_integrations_router(client, monkeypatch):
     assert client.delete("/api/repo/s").json() == {"status": "forgotten"}
 
 
+def _repos(*names, provider="github"):
+    host = "github.com" if provider == "github" else "bitbucket.org"
+    return [RepoSummary(provider=provider, full_name=n, url=f"https://{host}/{n}", private=True) for n in names]
+
+
 def test_chat_sends_repo_context_and_redacts_known_token(client, monkeypatch):
     calls, seen = [], []
     monkeypatch.setattr(workspace, "clone", _fake_clone(calls))
-    monkeypatch.setattr(chat_router, "llm_chat", lambda history, page_snapshot=None: ("ok", ContextProgress(repo=True, repo_url=URL)))
-    sid = client.post("/api/chat", json={"message": URL}).json()["session_id"]
-
+    monkeypatch.setattr(providers, "list_repos", lambda provider, token, email=None: _repos("acme/app"))
     credentials.set_token("github", "plain-secret-token")
+    sid = client.post("/api/repo/select", json={"provider": "github", "full_name": "acme/app"}).json()["session_id"]
 
     def fake(history, page_snapshot=None):
         seen.extend(history)
-        return "ok", ContextProgress(repo=True, repo_url=URL)
+        return "ok", ContextProgress(repo=True)
     monkeypatch.setattr(chat_router, "llm_chat", fake)
     client.post("/api/chat", json={"session_id": sid, "message": "mi token es plain-secret-token"})
 
     assert "plain-secret-token" not in " ".join(m.content for m in seen)
     assert "Django" in seen[-1].content and seen[-1].role == "user"
-    assert calls == [(URL, "plain-secret-token")]
+    assert calls == [(URL, "plain-secret-token")]  # se clono al elegirlo, no otra vez en el chat
     history = client.get(f"/api/chat/{sid}").json()["messages"]
     assert all("plain-secret-token" not in m["content"] and "Django" not in m["content"] for m in history)
+
+
+# --- selector de repos ---
+
+def test_repos_lists_only_connected_providers_and_reports_errors(client, monkeypatch):
+    def fake_list(provider, token, email=None):
+        if provider == "bitbucket":
+            raise providers.ProviderError("token invalido o sin permiso de lectura de repositorios")
+        return _repos("acme/app", "acme/web")
+
+    monkeypatch.setattr(providers, "list_repos", fake_list)
+    assert client.get("/api/repos").json() == {"repos": [], "errors": {}}
+    credentials.set_token("github", TOKEN)
+    credentials.set_token("bitbucket", "bb-token", "yo@acme.com")
+    data = client.get("/api/repos").json()
+    assert [r["full_name"] for r in data["repos"]] == ["acme/app", "acme/web"]
+    assert "bitbucket" in data["errors"] and TOKEN not in str(data)
+
+
+def test_select_only_accepts_repos_the_token_can_see(client, monkeypatch):
+    monkeypatch.setattr(workspace, "clone", _fake_clone([]))
+    monkeypatch.setattr(providers, "list_repos", lambda provider, token, email=None: _repos("acme/app"))
+    body = {"provider": "github", "full_name": "acme/app"}
+    assert client.post("/api/repo/select", json=body).status_code == 409  # sin integracion
+
+    credentials.set_token("github", TOKEN)
+    assert client.post("/api/repo/select", json={**body, "full_name": "evil/malware"}).status_code == 404
+    data = client.post("/api/repo/select", json=body).json()
+    assert data["cloned"] is True and data["repo"]["url"] == URL
+    context = client.get(f"/api/chat/{data['session_id']}").json()["context"]
+    assert context["repo_url"] == URL and context["repo"] is True
+
+    # elegir otro repo en la misma sesion reemplaza el anterior
+    monkeypatch.setattr(providers, "list_repos", lambda provider, token, email=None: _repos("acme/app", "acme/web"))
+    again = client.post("/api/repo/select", json={**body, "full_name": "acme/web", "session_id": data["session_id"]}).json()
+    assert again["session_id"] == data["session_id"] and again["repo"]["full_name"] == "acme/web"
+
+
+def test_select_reports_clone_failure(client, monkeypatch):
+    def boom(url, dest, token):
+        raise CloneError("nope")
+    monkeypatch.setattr(workspace, "clone", boom)
+    monkeypatch.setattr(providers, "list_repos", lambda provider, token, email=None: _repos("acme/app"))
+    credentials.set_token("github", TOKEN)
+    data = client.post("/api/repo/select", json={"provider": "github", "full_name": "acme/app"}).json()
+    assert data["cloned"] is False and "No se pudo clonar el repositorio" in data["detail"]
+
+
+def test_provider_outage_is_502(client, monkeypatch):
+    def down(provider, token, email=None):
+        raise providers.ProviderError("no se pudo contactar al proveedor: ConnectError")
+    monkeypatch.setattr(providers, "list_repos", down)
+    credentials.set_token("github", TOKEN)
+    assert client.post("/api/repo/select", json={"provider": "github", "full_name": "acme/app"}).status_code == 502
+
+
+def test_chat_ignores_repo_url_from_the_llm(client, monkeypatch):
+    # un link pegado en el chat nunca llega a clonarse: el repo solo lo fija el selector.
+    monkeypatch.setattr(
+        chat_router, "llm_chat",
+        lambda history, page_snapshot=None: ("ok", ContextProgress(repo=True, repo_url="https://github.com/evil/malware")),
+    )
+    data = client.post("/api/chat", json={"message": "https://github.com/evil/malware"}).json()
+    assert data["context"]["repo_url"] is None
+
+
+def test_integration_is_verified_before_saving(client, monkeypatch):
+    def bad(provider, token, email=None):
+        raise providers.ProviderError("token invalido o sin permiso de lectura de repositorios")
+    monkeypatch.setattr(providers, "verify", bad)
+    resp = client.post("/api/integrations", json={"provider": "github", "token": TOKEN})
+    assert resp.status_code == 422 and TOKEN not in resp.text
+    assert credentials.status() == {"github": False, "bitbucket": False}
+
+    seen = {}
+    monkeypatch.setattr(providers, "verify", lambda provider, token, email=None: seen.update(email=email))
+    client.post("/api/integrations", json={"provider": "bitbucket", "token": "bb", "email": " yo@acme.com "})
+    assert seen["email"] == "yo@acme.com" and credentials.get_email("bitbucket") == "yo@acme.com"
