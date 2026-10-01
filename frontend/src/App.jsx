@@ -292,9 +292,12 @@ export default function App() {
         );
         setMessages(hasWelcomeMessage ? storedMessages : [welcomeMessage, ...storedMessages]);
         setHasStarted(true);
+        setSidebarOpen(true);
         setContext(history.context);
       })
       .catch(() => {
+        setHasStarted(false);
+        setSidebarOpen(false);
         try {
           localStorage.removeItem(SESSION_STORAGE_KEY);
         } catch {
