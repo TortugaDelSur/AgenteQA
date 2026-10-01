@@ -206,6 +206,69 @@ files: [backend/app/models/db.py, backend/app/models/schemas.py, backend/app/sec
 
 needs: [chat, plan, execution, report]
 
+- [x] Reorganizar cada pestaña con el layout visual de la referencia y la paleta morada existente
+      tech: App.jsx (navegacion y shells de vista), components/*.jsx, styles.css (sidebar, superficies, paneles y responsive)
+      from: agent
+      by: copilot
+- [x] Mostrar el progreso QA como checklist plano mientras avanza el agente
+      tech: App.jsx::QaStepper, styles.css (marcadores, conectores y estados sin tarjetas)
+      from: agent
+      by: copilot
+- [x] Mostrar siempre el botón para iniciar una nueva sesión
+      tech: App.jsx::sidebar, styles.css::new-session-button
+      from: agent
+      by: copilot
+- [x] Conservar el saludo inicial al restaurar el chat
+      tech: App.jsx::restauración de historial desde localStorage
+      from: agent
+      by: copilot
+- [x] Dejar un botón directo para alternar el tema claro u oscuro
+      tech: App.jsx::theme toggle, styles.css::theme overrides
+      from: agent
+      by: copilot
+- [x] Alinear reinicio y tema con un botón de icono compacto
+      tech: App.jsx::theme toggle label, styles.css::sidebar-bottom
+      from: agent
+      by: copilot
+- [x] Quitar el encabezado del chat y reforzar el fondo difuminado
+      tech: App.jsx::workspace-header condicional, styles.css::conversation-area background layers
+      from: agent
+      by: copilot
+- [x] Mostrar una bienvenida centrada antes de iniciar el chat
+      tech: App.jsx::hasStarted, estilos iniciales y transición de sidebar
+      from: agent
+      by: copilot
+- [x] Permitir abrir y cerrar la sidebar desde la bienvenida
+      tech: App.jsx::sidebarOpen y botón flotante, styles.css::sidebar-toggle
+      from: agent
+      by: copilot
+- [x] Hacer visibles los difuminados de color en modo claro
+      tech: styles.css::theme-light conversation background and glow opacity
+      from: agent
+      by: copilot
+- [x] Simplificar el chat eliminando controles secundarios y estilizar copiar
+      tech: App.jsx::composer and copy button, styles.css::secondary controls
+      from: agent
+- [x] Compactar el composer y aumentar la fuente de los mensajes
+      tech: styles.css::composer and message typography
+      from: agent
+- [x] Hacer que la interfaz ocupe todo el viewport sin margen exterior
+      tech: styles.css::claude-app y contenedores laterales
+      from: agent
+      by: copilot
+- [x] Aclarar el chat en modo claro y conservar el progreso morado
+      tech: styles.css::theme-light (workspace, mensajes, barra y conectores del checklist)
+      from: agent
+      by: copilot
+- [x] Diferenciar visualmente el punto activo del checklist en modo claro
+      tech: styles.css::theme-light .step.active (centro blanco, aro morado)
+      from: agent
+      by: copilot
+
+## decisions
+
+- La referencia se adopta como lenguaje visual compartido para Chat, Integraciones y Ejecución: sidebar persistente, navegación de pestañas, contenido centrado en un workspace y tarjetas con bordes sutiles; se conservan los degradados morados y las microinteracciones existentes.
+
 - [x] Chat con stepper de progreso de los 4 nodos, dispara el plan solo cuando `ready_for_plan` es real
       tech: App.jsx::QaStepper, handleSendMessage
 - [x] Panel de barrido en vivo: capturas + resumen por pantalla, input de respuesta cuando hay una pregunta pendiente

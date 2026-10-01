@@ -93,7 +93,7 @@ function QaStepper({ context, hasPlan }) {
           return (
             <div className={`step ${isCompleted ? 'completed' : ''} ${isActive ? 'active' : ''}`} key={step.id}>
               <div className="step-rail">
-                <span className="step-marker">{isCompleted ? '✓' : index + 1}</span>
+                <span className="step-marker">{index + 1}</span>
                 {index < steps.length - 1 && <span className="step-line" />}
               </div>
               <div className="step-content">
@@ -200,6 +200,14 @@ export default function App() {
   const [sessionId, setSessionId] = useState('');
   const [messages, setMessages] = useState([welcomeMessage]);
   const [input, setInput] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [hasStarted, setHasStarted] = useState(() => {
+    try {
+      return Boolean(localStorage.getItem(SESSION_STORAGE_KEY));
+    } catch {
+      return false;
+    }
+  });
   const [plan, setPlan] = useState(null);
   const [results, setResults] = useState(null);
   const [executionProgress, setExecutionProgress] = useState(null);
@@ -217,6 +225,13 @@ export default function App() {
   const [sweepQuestion, setSweepQuestion] = useState(null);
   const [sweepLoginRequired, setSweepLoginRequired] = useState(null);
   const [view, setView] = useState('chat');
+  const [isLightMode, setIsLightMode] = useState(() => {
+    try {
+      return localStorage.getItem('agenteqa_theme') === 'light';
+    } catch {
+      return false;
+    }
+  });
   // null mientras carga: no se muestra el bloqueo hasta saber si hay integraciones.
   const [integrations, setIntegrations] = useState(null);
   const chatScrollRef = useRef(null);
@@ -234,6 +249,13 @@ export default function App() {
   }, []);
 
   const hasIntegration = Boolean(integrations?.github || integrations?.bitbucket);
+  useEffect(() => {
+    try {
+      localStorage.setItem('agenteqa_theme', isLightMode ? 'light' : 'dark');
+    } catch {
+      // El tema sigue funcionando durante esta sesión si localStorage no está disponible.
+    }
+  }, [isLightMode]);
   // el usuario dijo que tiene repo y todavia no lo eligio: aviso de token o lista de repos bajo el chat.
   const needsRepo = Boolean(context.wants_repo) && !context.repo_url;
   const repoName = context.repo_url ? context.repo_url.replace(/^https:\/\/[^/]+\//, '') : '';
@@ -264,7 +286,12 @@ export default function App() {
     getChatHistory(savedSessionId)
       .then((history) => {
         setSessionId(history.session_id);
-        setMessages(history.messages.length ? history.messages : [welcomeMessage]);
+        const storedMessages = history.messages || [];
+        const hasWelcomeMessage = storedMessages.some(
+          (message) => message.role === welcomeMessage.role && message.content === welcomeMessage.content,
+        );
+        setMessages(hasWelcomeMessage ? storedMessages : [welcomeMessage, ...storedMessages]);
+        setHasStarted(true);
         setContext(history.context);
       })
       .catch(() => {
@@ -284,6 +311,8 @@ export default function App() {
     if (sessionId) forgetRepo(sessionId).catch(() => {});
     setSessionId('');
     setMessages([welcomeMessage]);
+    setHasStarted(false);
+    setSidebarOpen(false);
     setInput('');
     setPlan(null);
     setResults(null);
@@ -414,6 +443,8 @@ export default function App() {
     const value = input.trim();
     if (!value || isLoading) return;
 
+    setHasStarted(true);
+    setSidebarOpen(true);
     setMessages((current) => [...current, { role: 'user', content: value }]);
     setInput('');
     if (textareaRef.current) {
@@ -449,14 +480,14 @@ export default function App() {
   };
 
   return (
-    <div className="claude-app">
+    <div className={`claude-app ${isLightMode ? 'theme-light' : 'theme-dark'} ${hasStarted ? 'has-started' : 'is-initial'} ${sidebarOpen ? 'sidebar-is-open' : 'sidebar-is-closed'}`}>
       <div className="ambient-glow" aria-hidden="true">
         <span className="glow glow-1" />
         <span className="glow glow-2" />
         <span className="glow glow-3" />
         <span className="glow glow-4" />
       </div>
-      <aside className="sidebar">
+      <aside className={`sidebar ${sidebarOpen ? 'sidebar-visible' : 'sidebar-hidden'}`}>
         <div className="brand">
           <div className="brand-mark">A</div>
           <span>AgenteQA</span>
@@ -493,9 +524,36 @@ export default function App() {
         )}
 
         {view === 'chat' && <QaStepper context={context} hasPlan={Boolean(plan)} />}
+        <div className="sidebar-bottom">
+          <button
+            type="button"
+            className="theme-toggle-button"
+            onClick={() => setIsLightMode((light) => !light)}
+            aria-label={isLightMode ? 'Cambiar a modo oscuro' : 'Cambiar a modo claro'}
+            title={isLightMode ? 'Modo oscuro' : 'Modo claro'}
+          >
+            <span aria-hidden="true">{isLightMode ? '☾' : '☀'}</span>
+          </button>
+          {view === 'chat' && (
+            <button type="button" className="new-session-button" onClick={resetChat}>
+              Reiniciar sesión
+            </button>
+          )}
+        </div>
       </aside>
 
       <main className="conversation-area">
+        {!hasStarted && (
+          <button
+            type="button"
+            className="sidebar-toggle"
+            onClick={() => setSidebarOpen((open) => !open)}
+            aria-label={sidebarOpen ? 'Ocultar barra lateral' : 'Mostrar barra lateral'}
+            title={sidebarOpen ? 'Ocultar barra lateral' : 'Mostrar barra lateral'}
+          >
+            <span aria-hidden="true">{sidebarOpen ? '‹' : '☰'}</span>
+          </button>
+        )}
         <div className="floating-bubbles" aria-hidden="true">
           {bubbleData.map((bubble, index) => (
             <span
@@ -518,41 +576,48 @@ export default function App() {
         {view === 'integrations' ? (
           <IntegrationsPage integrations={integrations} onChange={setIntegrations} onBack={() => setView('chat')} />
         ) : (
-        <section className="chat-content">
+        <section className={`chat-content ${hasStarted ? 'chat-started' : 'chat-initial'}`}>
           <div className="chat-scroll" ref={chatScrollRef}>
-            <div className="messages">
-              {messages.map((message, index) => (
-                <article key={`${message.role}-${index}`} className={`message ${message.role}`}>
-                  {message.role === 'assistant' && <div className="assistant-mark">A</div>}
-                  <div className="message-body">
-                    {message.role === 'assistant' && <span className="message-name">AgenteQA</span>}
-                    {message.role === 'assistant' && (
-                      <button
-                        type="button"
-                        className="copy-button"
-                        onClick={() => {
-                          navigator.clipboard?.writeText(message.content).catch(() => {});
-                        }}
-                        aria-label="Copiar respuesta"
-                        title="Copiar contenido"
-                      >
-                        <span className="copy-icon">⧉</span>
-                      </button>
-                    )}
-                    <p>{message.content}</p>
-                  </div>
-                </article>
-              ))}
-              {isLoading && (
-                <article className="message assistant">
-                  <div className="assistant-mark">A</div>
-                  <div className="message-body">
-                    <span className="message-name">AgenteQA</span>
-                    <TypingLoader />
-                  </div>
-                </article>
-              )}
-            </div>
+            {!hasStarted ? (
+              <div className="initial-welcome">
+                <h1>Hola, muy buenas</h1>
+                <p>¿En qué puedo ayudarte?</p>
+              </div>
+            ) : (
+              <div className="messages">
+                {messages.map((message, index) => (
+                  <article key={`${message.role}-${index}`} className={`message ${message.role}`}>
+                    {message.role === 'assistant' && <div className="assistant-mark">A</div>}
+                    <div className="message-body">
+                      {message.role === 'assistant' && <span className="message-name">AgenteQA</span>}
+                      {message.role === 'assistant' && (
+                        <button
+                          type="button"
+                          className="copy-button"
+                          onClick={() => {
+                            navigator.clipboard?.writeText(message.content).catch(() => {});
+                          }}
+                          aria-label="Copiar respuesta"
+                          title="Copiar contenido"
+                        >
+                          <span className="copy-icon">⧉</span>
+                        </button>
+                      )}
+                      <p>{message.content}</p>
+                    </div>
+                  </article>
+                ))}
+                {isLoading && (
+                  <article className="message assistant">
+                    <div className="assistant-mark">A</div>
+                    <div className="message-body">
+                      <span className="message-name">AgenteQA</span>
+                      <TypingLoader />
+                    </div>
+                  </article>
+                )}
+              </div>
+            )}
 
             {error && <div className="error-message">{error}</div>}
 
@@ -675,12 +740,7 @@ export default function App() {
               aria-label="Mensaje"
             />
             <div className="composer-footer">
-              <div className="composer-tools">
-                <button type="button" className="tool-button" aria-label="Adjuntar archivo">+</button>
-                <span>Agrega contexto sobre tu aplicación</span>
-              </div>
               <div className="composer-actions">
-                <span className="shortcut">Shift + Enter para nueva línea</span>
                 <button
                   type="submit"
                   className={`send-button ${input.trim() ? 'active' : ''}`}
@@ -692,8 +752,6 @@ export default function App() {
               </div>
             </div>
           </form>
-
-          <p className="disclaimer">AgenteQA puede cometer errores. Revisa el plan antes de ejecutar las pruebas.</p>
         </section>
         )}
       </main>

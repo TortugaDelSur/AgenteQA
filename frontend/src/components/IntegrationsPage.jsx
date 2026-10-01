@@ -115,17 +115,18 @@ export default function IntegrationsPage({ integrations, onChange, onBack }) {
 
   return (
     <section className="integrations-page">
-      <span className="eyebrow">Configuración</span>
-      <h1>Integraciones</h1>
-      <p className="integrations-intro">
-        AgenteQA necesita acceso de lectura a tus repositorios para listarlos, levantar el que elijas,
-        probarlo y señalar dónde está el problema cuando algo falla. Conecta al menos uno: el token se
-        verifica contra el proveedor al conectarlo.
-      </p>
-      <p className="integrations-note">
-        El token se guarda solo en la memoria del servidor: nunca se muestra, no se guarda en el
-        navegador y no se envía al modelo. Si el servidor se reinicia, hay que volver a conectarlo.
-      </p>
+      <div className="page-intro">
+        <span className="eyebrow">Conexiones seguras</span>
+        <h2>Conecta tus repositorios</h2>
+        <p className="integrations-intro">
+          AgenteQA necesita acceso de lectura para listar, levantar y probar el repositorio que elijas.
+          Cada token se verifica contra el proveedor y nunca se envía al modelo.
+        </p>
+      </div>
+      <div className="integrations-note">
+        <span className="note-icon">i</span>
+        <span>El token se guarda solo en la memoria del servidor. Si el servidor se reinicia, tendrás que volver a conectarlo.</span>
+      </div>
       <div className="integrations-grid">
         {PROVIDERS.map((provider) => (
           <IntegrationCard
