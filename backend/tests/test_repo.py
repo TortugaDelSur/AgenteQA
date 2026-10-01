@@ -377,3 +377,65 @@ def test_integration_is_verified_before_saving(client, monkeypatch):
     monkeypatch.setattr(providers, "verify", lambda provider, token, email=None: seen.update(email=email))
     client.post("/api/integrations", json={"provider": "bitbucket", "token": "bb", "email": " yo@acme.com "})
     assert seen["email"] == "yo@acme.com" and credentials.get_email("bitbucket") == "yo@acme.com"
+
+
+# --- flujo "tiene repo?" ---
+
+def _chat_with(client, monkeypatch, sid, **llm_ctx):
+    monkeypatch.setattr(chat_router, "llm_chat", lambda history, page_snapshot=None: ("ok", ContextProgress(**llm_ctx)))
+    return client.post("/api/chat", json={"session_id": sid, "message": "x"}).json()
+
+
+def test_wants_repo_keeps_repo_open_until_chosen_and_is_sticky(client, monkeypatch):
+    d = _chat_with(client, monkeypatch, None, objetivo=True, wants_repo=True, repo=True)
+    sid = d["session_id"]
+    # dijo que si: el nodo repo queda abierto (aunque el LLM lo marque true) hasta elegir
+    assert d["context"]["wants_repo"] is True and d["context"]["repo"] is False
+
+    # el LLM se olvida de wants_repo en el turno siguiente: se mantiene, y el plan no se habilita
+    d = _chat_with(client, monkeypatch, sid, objetivo=True, acceso=True, alcance=True)
+    assert d["context"]["wants_repo"] is True and d["ready_for_plan"] is False
+
+    # se arrepiente: "mejor sin repo" -> repo resuelto, wants_repo false
+    d = _chat_with(client, monkeypatch, sid, objetivo=True, acceso=True, alcance=True, repo=True, wants_repo=False)
+    assert d["context"]["wants_repo"] is False and d["context"]["repo"] is True and d["ready_for_plan"] is True
+
+
+def test_no_repo_answer_resolves_the_node(client, monkeypatch):
+    d = _chat_with(client, monkeypatch, None, objetivo=True, repo=True, wants_repo=False)
+    assert d["context"]["repo"] is True and d["context"]["wants_repo"] is False
+
+
+def test_select_adds_next_agent_question_to_history_and_enables_plan(client, monkeypatch):
+    monkeypatch.setattr(workspace, "clone", _fake_clone([]))
+    monkeypatch.setattr(providers, "list_repos", lambda provider, token, email=None: _repos("acme/app"))
+    credentials.set_token("github", TOKEN)
+    sid = _chat_with(client, monkeypatch, None, objetivo=True, wants_repo=True)["session_id"]
+
+    data = client.post("/api/repo/select", json={"session_id": sid, "provider": "github", "full_name": "acme/app"}).json()
+    assert "acme/app" in data["reply"] and "login" in data["reply"]
+    assert data["context"]["repo"] is True and data["context"]["wants_repo"] is True
+    history = client.get(f"/api/chat/{sid}").json()["messages"]
+    assert history[-1] == {"role": "assistant", "content": data["reply"]}
+
+    d = _chat_with(client, monkeypatch, sid, objetivo=True, acceso=True, alcance=True)
+    assert d["context"]["repo_url"] == URL and d["ready_for_plan"] is True
+
+
+def test_next_question_follows_the_pending_node():
+    from app.routers.repo import _next_question
+    assert "Qué quieres validar" in _next_question(ContextProgress())
+    assert "login" in _next_question(ContextProgress(objetivo=True))
+    assert "funcionalidades" in _next_question(ContextProgress(objetivo=True, acceso=True))
+    assert "generar el plan" in _next_question(ContextProgress(objetivo=True, acceso=True, alcance=True))
+
+
+def test_failed_clone_does_not_fix_the_repo(client, monkeypatch):
+    def boom(url, dest, token):
+        raise CloneError("nope")
+    monkeypatch.setattr(workspace, "clone", boom)
+    monkeypatch.setattr(providers, "list_repos", lambda provider, token, email=None: _repos("acme/app"))
+    credentials.set_token("github", TOKEN)
+    data = client.post("/api/repo/select", json={"provider": "github", "full_name": "acme/app"}).json()
+    assert data["cloned"] is False and data["reply"] is None
+    assert client.get(f"/api/chat/{data['session_id']}").json()["context"]["repo_url"] is None

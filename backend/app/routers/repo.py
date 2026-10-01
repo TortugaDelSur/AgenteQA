@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session as OrmSession
 
-from app.models.db import Session, get_db
+from app.models.db import Message, Session, get_db
 from app.models.schemas import ContextProgress, IntegrationRequest, RepoSelectRequest
 from app.repo import credentials, providers, workspace
 
@@ -71,23 +71,39 @@ def select_repo(req: RepoSelectRequest, db: OrmSession = Depends(get_db)) -> dic
     if session is None:
         session = Session(id=str(uuid.uuid4()), context_json=ContextProgress().model_dump_json())
         db.add(session)
-    context = ContextProgress(**json.loads(session.context_json))
-    context.repo_url = repo.url
-    context.repo = True
-    session.context_json = ContextProgress(**context.model_dump()).model_dump_json()  # revalida repo_url
-    db.commit()
+        db.commit()
 
     workspace.repo_context(session.id, repo.url)  # clona ahora: el error se ve al elegir, no en el chat
-    cloned = workspace.repo_path(session.id) is not None
+    if workspace.repo_path(session.id) is None:
+        # no se fija el repo si no se pudo clonar: el usuario puede reintentar o elegir otro.
+        return {
+            "session_id": session.id, "repo": repo.model_dump(), "cloned": False, "reply": None,
+            "detail": "No se pudo clonar el repositorio. Revisa que el token tenga permiso de lectura del "
+                      "contenido (GitHub: Contents read-only; Bitbucket: read:repository).",
+        }
+
+    context = ContextProgress(**json.loads(session.context_json))
+    context.repo_url, context.repo, context.wants_repo = repo.url, True, True
+    context = ContextProgress(**context.model_dump())  # revalida repo_url
+    session.context_json = context.model_dump_json()
+    # el agente sigue solo: queda en el historial (el LLM sabe que ya lo pregunto) y el front lo muestra.
+    reply = f"Listo, voy a usar {repo.full_name} como contexto: lo levanto localmente para probarlo. {_next_question(context)}"
+    db.add(Message(session_id=session.id, role="assistant", content=reply))
+    db.commit()
     return {
-        "session_id": session.id,
-        "repo": repo.model_dump(),
-        "cloned": cloned,
-        "detail": None if cloned else (
-            "No se pudo clonar el repositorio. Revisa que el token tenga permiso de lectura del contenido "
-            "(GitHub: Contents read-only; Bitbucket: read:repository)."
-        ),
+        "session_id": session.id, "repo": repo.model_dump(), "cloned": True, "reply": reply,
+        "context": context.model_dump(), "ready_for_plan": context.ready_for_plan, "detail": None,
     }
+
+
+def _next_question(context: ContextProgress) -> str:
+    if not context.objetivo:
+        return "¿Qué quieres validar y qué tipo de app es (web, API o ambas)?"
+    if not context.acceso:
+        return "¿La app tiene login? Si tiene, compárteme un usuario y contraseña de prueba (no reales)."
+    if not context.alcance:
+        return "¿Qué funcionalidades o endpoints quieres cubrir?"
+    return "Ya tengo todo lo necesario para generar el plan de pruebas."
 
 
 @router.get("/api/repo/status")

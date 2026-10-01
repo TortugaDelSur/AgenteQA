@@ -34,13 +34,18 @@ class ContextProgress(BaseModel):
     extra_urls: list[str] = []
     # repo de la empresa a clonar/levantar. Solo hosts de REPO_HOSTS (filtro duro abajo).
     repo_url: str | None = None
+    # el usuario dijo que tiene repositorio: el front muestra el aviso de integracion o la lista de
+    # repos hasta que elija uno (POST /api/repo/select). "repo" queda en false hasta entonces.
+    wants_repo: bool = False
 
     @property
     def ready_for_plan(self) -> bool:
         # "repo" tambien bloquea (aunque el usuario no tenga uno, igual hay que preguntarle):
         # si no bloqueara, el front puede disparar el plan en el mismo turno en que el chat
         # todavia esta preguntando por el repo, cortandole la respuesta al usuario.
-        return self.objetivo and self.acceso and self.alcance and self.repo
+        return self.objetivo and self.acceso and self.alcance and self.repo and (
+            not self.wants_repo or bool(self.repo_url)
+        )
 
     @model_validator(mode="after")
     def _sanitize_extra_urls(self) -> "ContextProgress":

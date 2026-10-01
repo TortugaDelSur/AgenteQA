@@ -49,7 +49,15 @@ def post_chat(req: ChatRequest, db: OrmSession = Depends(get_db)) -> ChatRespons
     # el repo solo lo fija el selector (POST /api/repo/select, que valida contra los repos del token):
     # lo que diga el LLM no cuenta, asi un link pegado en el chat nunca llega a clonarse.
     context.repo_url = previous_context.repo_url
-    context.repo = context.repo or previous_context.repo or bool(context.repo_url)
+    if context.repo_url:
+        context.repo, context.wants_repo = True, True
+    elif context.repo and not context.wants_repo:
+        pass  # dijo que no tiene repo (o se arrepintio): nodo resuelto, sigue con URL
+    else:
+        # dijo que si: el nodo queda abierto hasta que elija el repo en la lista. wants_repo se
+        # mantiene aunque el LLM se lo olvide en un turno siguiente.
+        context.wants_repo = context.wants_repo or previous_context.wants_repo
+        context.repo = False
     session.context_json = context.model_dump_json()
     db.add(Message(session_id=session.id, role="assistant", content=reply))
     db.commit()

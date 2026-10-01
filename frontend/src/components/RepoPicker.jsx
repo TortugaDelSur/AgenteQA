@@ -3,8 +3,22 @@ import { listRepos, selectRepo } from '../api/client';
 
 const PROVIDER_LABEL = { github: 'GitHub', bitbucket: 'Bitbucket' };
 
-// Elige el repo a probar entre los que ve el token: nunca se pega un link (el backend ademas valida
-// que el repo elegido este en esa lista).
+// Panel debajo del chat (no tapa la conversacion) cuando el usuario dijo que tiene repo. Sin
+// integracion, avisa y lleva a Integraciones; con integracion, lista los repos que ve el token: nunca se
+// pega un link (el backend ademas valida que el repo elegido este en esa lista).
+export function RepoNeedsToken({ onGoToIntegrations }) {
+  return (
+    <section className="sweep-panel repo-panel">
+      <span className="eyebrow">Repositorio</span>
+      <p className="repo-panel-text">
+        Para usar tu repositorio necesito un token de solo lectura de GitHub o Bitbucket. Conéctalo y vuelve
+        aquí: te muestro la lista de repositorios para elegir.
+      </p>
+      <button type="button" className="execute-button" onClick={onGoToIntegrations}>Ir a Integraciones</button>
+    </section>
+  );
+}
+
 export default function RepoPicker({ sessionId, onSelected, onGoToIntegrations }) {
   const [repos, setRepos] = useState(null);
   const [errors, setErrors] = useState({});
@@ -12,8 +26,8 @@ export default function RepoPicker({ sessionId, onSelected, onGoToIntegrations }
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(null);
   const [selectError, setSelectError] = useState('');
-  const searchRef = useRef(null);
-
+  const panelRef = useRef(null);
+  
   useEffect(() => {
     listRepos()
       .then((data) => {
@@ -21,8 +35,12 @@ export default function RepoPicker({ sessionId, onSelected, onGoToIntegrations }
         setErrors(data.errors || {});
       })
       .catch((err) => setLoadError(err.message || 'No se pudieron cargar los repositorios'));
-    searchRef.current?.focus();
   }, []);
+
+  // la lista llega despues del scroll automatico del chat: se trae a la vista cuando carga.
+  useEffect(() => {
+    if (repos !== null || loadError) panelRef.current?.scrollIntoView?.({ block: 'end', behavior: 'smooth' });
+  }, [repos, loadError]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -48,14 +66,12 @@ export default function RepoPicker({ sessionId, onSelected, onGoToIntegrations }
   };
 
   return (
-    <div className="gate-backdrop">
-      <div className="gate-modal repo-picker" role="dialog" aria-modal="true" aria-labelledby="picker-title">
-        <span className="eyebrow">Paso 1</span>
-        <h2 id="picker-title">Elige el repositorio a probar</h2>
-        <p>Solo aparecen los repositorios a los que tu token tiene acceso.</p>
+    <section className="sweep-panel repo-panel" aria-labelledby="picker-title" ref={panelRef}>
+        <span className="eyebrow">Repositorio</span>
+        <h2 id="picker-title" className="repo-panel-title">Elige el repositorio a probar</h2>
+        <p className="repo-panel-text">Solo aparecen los repositorios a los que tu token tiene acceso.</p>
 
         <input
-          ref={searchRef}
           className="repo-search"
           type="search"
           value={query}
@@ -104,7 +120,6 @@ export default function RepoPicker({ sessionId, onSelected, onGoToIntegrations }
             </div>
           ))}
         </div>
-      </div>
-    </div>
+    </section>
   );
 }
